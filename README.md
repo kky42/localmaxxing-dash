@@ -2,6 +2,8 @@
 
 <p align="center">A read-only monitoring dashboard and rack panel for NVIDIA DGX Spark-class machines<br>and the vLLM, SGLang, TensorFold, llama.cpp, Strata or oMLX server running on them.<br>Linux machines with an NVIDIA GPU and Apple Silicon Macs running oMLX work too.</p>
 
+<p align="center"><sub>A fork of <a href="https://github.com/juliankang4/spark-scope">juliankang4/spark-scope</a> — all credit for the original dashboard lives there. This fork tracks upstream and carries small fixes of its own.</sub></p>
+
 <p align="center">
   <a href="https://github.com/juliankang4/spark-scope/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/juliankang4/spark-scope"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/juliankang4/spark-scope"></a>
