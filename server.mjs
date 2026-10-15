@@ -10,6 +10,7 @@ import { downsampleHistory, summarizeHistory } from "./lib/history.mjs";
 import { hostAllowed, hostRules, SECURITY_HEADERS } from "./lib/http-guard.mjs";
 import { publicState } from "./lib/public-state.mjs";
 import { loadTopology, nodeInterfaces, publicTopology, topologyServers } from "./lib/topology.mjs";
+import { createBench } from "./lib/bench.mjs";
 
 // node:sqlite (the token ledger) needs Node 22.13 or later; say so instead of failing on the import.
 const [major, minor] = process.versions.node.split(".").map(Number);
@@ -80,6 +81,10 @@ const config = {
 const hosts = hostRules({ bindHost: config.host, allowed: config.allowedHosts });
 const HISTORY_WINDOW_MS = 6 * 60 * 60 * 1000;
 const HISTORY_LIMIT = Math.ceil(HISTORY_WINDOW_MS / Math.min(config.nodeIntervalMs, config.apiIntervalMs)) + 20;
+
+// The bench engine: decode / prefill / agent suites against the inference API,
+// results next to the token ledger. One job at a time.
+const bench = createBench({ apiUrl: config.apiUrl, dataHome });
 
 // Nodes, SSH targets and links come from topology.json (or the file named by SPARK_SCOPE_TOPOLOGY).
 const topology = loadTopology();
@@ -345,6 +350,40 @@ function sendJson(request, response, status, body) {
   response.end(text);
 }
 
+// Small JSON body reader for the bench POST endpoints (16 KiB cap).
+function readJsonBody(request) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    request.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > 16384) {
+        reject(new Error("body too large"));
+        request.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on("end", () => {
+      if (!chunks.length) {
+        resolve(null);
+        return;
+      }
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      } catch {
+        reject(new Error("invalid JSON body"));
+      }
+    });
+    request.on("error", reject);
+  });
+}
+
+// POST is allowed only for the bench endpoints; anything else stays GET-only.
+function url_ok(request) {
+  return /^\/api\/bench\/(run|cancel)$/.test(request.url.split("?")[0]);
+}
+
 async function handle(request, response) {
   if (!hostAllowed(request.headers.host, hosts)) {
     const name = String(request.headers.host).slice(0, 100);
@@ -355,8 +394,8 @@ async function handle(request, response) {
     response.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("Host not allowed. Add it to SPARK_SCOPE_ALLOWED_HOSTS on the dashboard server.");
     return;
   }
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    response.writeHead(405, { Allow: "GET, HEAD" }).end("Method not allowed");
+  if (request.method !== "GET" && request.method !== "HEAD" && !(request.method === "POST" && url_ok(request))) {
+    response.writeHead(405, { Allow: "GET, HEAD, POST /api/bench/*" }).end("Method not allowed");
     return;
   }
   let url;
@@ -403,6 +442,24 @@ async function handle(request, response) {
     } catch (error) {
       sendJson(request, response, 500, { error: error.message });
     }
+    return;
+  }
+  if (url.pathname === "/api/bench") {
+    sendJson(request, response, 200, await bench.summary());
+    return;
+  }
+  if (url.pathname === "/api/bench/run" && request.method === "POST") {
+    try {
+      const body = await readJsonBody(request);
+      const job = await bench.run(body ?? {});
+      sendJson(request, response, 202, { id: job.id, suite: job.suite, state: job.state });
+    } catch (error) {
+      sendJson(request, response, error?.code === "busy" ? 409 : 400, { error: error.message });
+    }
+    return;
+  }
+  if (url.pathname === "/api/bench/cancel" && request.method === "POST") {
+    sendJson(request, response, 200, { cancelled: bench.cancel() });
     return;
   }
   // The rack panel (public/rack/) for a bar display or kiosk.
