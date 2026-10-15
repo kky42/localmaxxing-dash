@@ -34,7 +34,7 @@
 <section class="by-model" id="model-table"></section>
 </section>
 <section id="bench" class="bench-view" role="tabpanel" aria-labelledby="tab-bench" hidden>
-<div class="ledger-head"><div><h2>Bench</h2><small>Measured from the bench's own requests only — TTFT and tok/s here are not the live panel's rolling window. Pick a suite, tap the levels, run: a live readout streams while the GPU takes the load, capped at 2 concurrent requests.</small></div></div>
+<div class="ledger-head"><div><h2>Bench</h2><small>Measured from the bench's own requests only — TTFT and tok/s here are not the live panel's rolling window. Pick a suite, tap the levels, run: a live readout streams while the GPU takes the load, capped at 8 concurrent requests.</small></div></div>
 <div class="bench-grid">
 <aside class="chart-box bench-config">
 <div class="bench-tabs" id="bench-suite-tabs" role="tablist" aria-label="Bench suite"><button type="button" role="tab" data-suite="decode" aria-selected="true">Decode</button><button type="button" role="tab" data-suite="prefill" aria-selected="false">Prefill</button><button type="button" role="tab" data-suite="agent" aria-selected="false">Agent</button></div>
@@ -42,7 +42,7 @@
 <div id="bench-suite-panel"></div>
 <p class="bench-summary" id="bench-summary"></p>
 <div class="bench-runbar"><button type="button" id="bench-run" class="bench-run">Run</button></div>
-<p class="bench-run-hint">Load is capped at 2 concurrent requests. The GPU is shared with live agents — results measure the bench's own requests.</p>
+<p class="bench-run-hint">Load is capped at 8 concurrent requests. The GPU is shared with live agents — results measure the bench's own requests.</p>
 <p class="bench-error" id="bench-error" hidden></p>
 </aside>
 <div class="bench-main">

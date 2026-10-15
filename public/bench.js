@@ -32,9 +32,9 @@ const SIZE_PRESETS = [8192, 32768, 65536];
 const state = {
   suite: 'decode',
   config: {
-    decode: { concurrency: [1, 2], tokens: 384 },
+    decode: { concurrency: [1], tokens: 384 },
     prefill: { sizes: [...SIZE_PRESETS] },
-    agent: { concurrency: [1, 2] },
+    agent: { concurrency: [1] },
   },
   viewId: null, // history run opened by hand; null = follow the latest of the selected suite
   api: null,
@@ -120,8 +120,8 @@ function renderConfig() {
   if (state.suite === 'decode') {
     parts.push(field(
       'Concurrency',
-      'Levels run sequentially; each opens that many parallel streams. The server caps load at 2.',
-      chipsWrap([1, 2].map((n) => chip(String(n), 'conc', n, c.concurrency.includes(n))).join('')),
+      'Levels run sequentially; each opens that many parallel streams. The server caps load at 8.',
+      chipsWrap([1, 2, 4, 8].map((n) => chip(String(n), 'conc', n, c.concurrency.includes(n))).join('')),
     ));
     parts.push(field(
       'Tokens per stream',
@@ -140,7 +140,7 @@ function renderConfig() {
     parts.push(field(
       'Concurrency',
       'One agent, then two in parallel. Each agent plays the same 3-turn scripted loop.',
-      chipsWrap([1, 2].map((n) => chip(String(n), 'conc', n, c.concurrency.includes(n))).join('')),
+      chipsWrap([1, 2, 4, 8].map((n) => chip(String(n), 'conc', n, c.concurrency.includes(n))).join('')),
     ));
   }
   el('bench-suite-panel').innerHTML = parts.join('');
