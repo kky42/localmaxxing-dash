@@ -562,7 +562,7 @@ $('#settings-copy').addEventListener('click',async()=>{
 });
 
 showUnits();showLayout();showRange();syncForm();
-buildNodes();rebuildMonths();clearMonth('ledger.loading');selectTab($(location.hash==='#tokens'?'#tab-tokens':'#tab-scope'),false);void refresh();
+buildNodes();rebuildMonths();clearMonth('ledger.loading');selectTab($(location.hash==='#tokens'?'#tab-tokens':location.hash==='#bench'?'#tab-bench':'#tab-scope'),false);void refresh();
 // With "pause while hidden" on (the default) a hidden tab sends no requests; when it is shown again it reloads the
 // chart history at once, so the gap fills in. While the page shows the mini view, only the mini view polls.
 function poll(){if(settings.pause&&document.hidden||inlineShown())return;void refresh();if(!$('#tokens').hidden)void refreshMonth()}
