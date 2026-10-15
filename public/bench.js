@@ -39,40 +39,58 @@ function renderResult(run) {
   const body = el("bench-last-body");
   body.textContent = "";
   const table = document.createElement("table");
-  table.className = "bench-table";
+  table.className = "model-table bench-table";
   const rows = [];
   const addRow = (label, value, note = "") => rows.push(`<tr><td>${label}</td><td><b>${value}</b></td><td class="bench-note">${note}</td></tr>`);
   const result = run.result ?? {};
   if (run.suite === "decode") {
     for (const wave of result.waves ?? []) {
-      addRow(`Decode c=${wave.concurrency}`, `${fmt(wave.decodeTps)} tok/s`, "Σ decode tokens / Σ first→last token windows (bench requests only)");
-      addRow(`· window c=${wave.concurrency}`, `${fmt(wave.windowDecodeTps)} tok/s`, "Σ tokens / whole wave wall time");
+      addRow(`Decode c=${wave.concurrency}`, `${fmt(wave.decodeTps)} tok/s`, "Σ decode tokens / concurrent first→last token window (bench requests only)");
+      addRow(`· per-stream c=${wave.concurrency}`, `${fmt(wave.meanStreamTps)} tok/s`, "mean of each stream's own (completion − 1) / window");
+      addRow(`· wall c=${wave.concurrency}`, `${fmt(wave.windowDecodeTps)} tok/s`, "Σ tokens / whole wave wall time (includes TTFT)");
       addRow(`· TTFT c=${wave.concurrency}`, `${fmt(wave.ttft?.median)} / ${fmt(wave.ttft?.p95)} ms`, "median / p95, bench requests only");
     }
   } else if (run.suite === "prefill") {
     addRow("Fixed overhead", `${fmt(result.overheadMs)} ms`, "median TTFT of tiny prompts");
     for (const row of result.sizes ?? []) {
-      addRow(`Prefill ${row.promptTokens ?? row.requestedTokens} tok`, `${fmt(row.prefillTps)} tok/s`, row.lowConfidence ? "low confidence (overhead dominates)" : `TTFT ${fmt(row.ttftMs)} ms${row.cachedTokens ? `, cached ${row.cachedTokens}` : ", cold"}`);
+      const notes = [];
+      if (row.lowConfidence) notes.push("low confidence");
+      if (row.usageEstimated) notes.push("prompt tokens estimated — the server sent no usage");
+      notes.push(`TTFT ${fmt(row.ttftMs)} ms`);
+      if (row.cachedTokens) notes.push(`cached ${row.cachedTokens}`);
+      addRow(`Prefill ${row.promptTokens ?? row.requestedTokens} tok`, `${fmt(row.prefillTps)} tok/s`, notes.join(", ") || "cold prompt");
     }
   } else if (run.suite === "agent") {
     for (const wave of result.waves ?? []) {
       addRow(`Agent c=${wave.concurrency}`, `${fmt(wave.toolcallAccuracy)}% accurate`, `${wave.turns?.length ?? 0} turns, pi-shaped tool loop`);
       addRow(`· Cache hit c=${wave.concurrency}`, `${fmt(wave.promptCacheHitPercent)}%`, "cached / prompt tokens across turns");
+      addRow(`· Decode c=${wave.concurrency}`, `${fmt(wave.meanTurnDecodeTps)} tok/s`, "mean of measurable turns; a turn whose tokens arrive in one chunk has no window and shows “—”");
       addRow(`· TTFT c=${wave.concurrency}`, `${fmt(wave.ttft?.median)} / ${fmt(wave.ttft?.p95)} ms`, "median / p95 across turns");
+      for (const turn of wave.turns ?? []) {
+        const note = turn.decodeNote ?? "";
+        addRow(`· turn ${turn.index + 1}`, `${turn.called ?? "answer"}${turn.called ? (turn.argsOk ? " ✓" : " ✗ bad args") : ""} — ${fmt(turn.decodeTps)} tok/s`, `${turn.accurate ? "as expected" : `expected ${turn.expected ?? "a plain answer"}`}${note ? `; ${note}` : ""}`);
+      }
     }
   }
   if (result.benchTtft) addRow("Bench TTFT", `${fmt(result.benchTtft.median)} / ${fmt(result.benchTtft.p95)} ms`, `median / p95 over ${result.benchTtft.n} bench requests (not the home page's live p95)`);
   table.innerHTML = `<thead><tr><th>Measurement</th><th>Value</th><th></th></tr></thead><tbody>${rows.join("")}</tbody>`;
   body.append(table);
+  if (run.error && (run.state === "error" || run.state === "cancelled")) {
+    const note = document.createElement("p");
+    note.className = "note";
+    note.textContent = `The run ended ${run.state}: ${run.error}`;
+    body.append(note);
+  }
 }
 
 function renderHistory(history) {
   const list = el("bench-history");
   list.textContent = "";
   for (const run of history ?? []) {
-    const when = new Date(run.startedAt ?? run.startedAt).toLocaleString();
+    const when = new Date(run.startedAt).toLocaleString();
     const item = document.createElement("tr");
-    item.innerHTML = `<td>${when}</td><td>${run.suite}</td><td>${run.state}</td><td>${run.result?.model ?? ""}</td>`;
+    const error = run.error ? String(run.error) : "";
+    item.innerHTML = `<td>${when}</td><td>${run.suite}</td><td${error ? ' class="bench-fail"' : ""}>${run.state}</td><td>${run.result?.model ?? ""}</td><td class="bench-note" title="${error.replace(/"/g, "&quot;")}">${error}</td>`;
     list.append(item);
   }
 }

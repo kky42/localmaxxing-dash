@@ -319,25 +319,26 @@ button.server-row[aria-pressed=true]{background:var(--hover);color:var(--ink);bo
 .shortcut-note{margin:14px 0;font-size:12px;color:var(--muted)}
 .shortcuts button{border:1px solid var(--line);background:transparent;color:var(--ink);padding:7px 13px;font:500 12px var(--num-font)}
 
-/* Bench view */
-#bench { padding: 0 0 2rem; }
-.bench-head { margin: 0.5rem 0 1rem; }
-.bench-head h2 { margin: 0 0 0.25rem; font-size: 1.2rem; }
-.bench-head small { color: var(--muted, #666); }
-.bench-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
-.bench-card { border: 1px solid var(--border, #ddd); border-radius: 10px; padding: 1rem; background: var(--card, #fff); }
-.bench-card h3 { margin: 0 0 0.4rem; font-size: 1rem; }
-.bench-card p { font-size: 0.85rem; color: var(--muted, #666); margin: 0 0 0.7rem; }
-.bench-card label { display: block; font-size: 0.85rem; margin-bottom: 0.7rem; }
-.bench-card input { display: block; width: 100%; margin-top: 0.25rem; padding: 0.35rem 0.5rem; border: 1px solid var(--border, #ccc); border-radius: 6px; background: var(--bg, #fff); color: inherit; }
-.bench-card button, .bench-active button { padding: 0.45rem 0.9rem; border: none; border-radius: 6px; background: var(--accent, #2563eb); color: #fff; cursor: pointer; font: inherit; }
-.bench-card button:disabled { opacity: 0.5; cursor: default; }
-.bench-active, .bench-last { border: 1px solid var(--border, #ddd); border-radius: 10px; padding: 0.8rem 1rem; margin-bottom: 1rem; background: var(--card, #fff); }
-.bench-active-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
-.bench-active pre { margin: 0.6rem 0 0; font-size: 0.8rem; white-space: pre-wrap; color: var(--muted, #666); max-height: 8rem; overflow: auto; }
-.bench-last h3 { margin: 0 0 0.5rem; font-size: 1rem; }
-.bench-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-.bench-table th, .bench-table td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border, #eee); }
-.bench-table th { font-weight: 600; color: var(--muted, #666); }
-.bench-table .bench-note { color: var(--muted, #666); font-size: 0.78rem; }
-.bench-history-block h3 { font-size: 1rem; margin: 1rem 0 0.4rem; }
+/* Bench view: reuses the token ledger's treatments — .ledger-head for the view
+   header, .chart-box panels, .model-table rows, button.plain controls — so the
+   only bench-specific CSS is layout, not a second design language. */
+.bench-view{padding:24px}
+.bench-view h2{margin:0;font-size:22px}
+.bench-view .ledger-head small{display:block;margin-top:5px;font-size:11px;color:var(--muted)}
+.bench-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin-bottom:18px}
+.bench-card h3{margin:0 0 6px;font:700 13px var(--num-font)}
+.bench-card p{font-size:12px;color:var(--muted);margin:0 0 10px}
+.bench-field{display:grid;gap:4px;font-size:11px;color:var(--muted);margin-bottom:12px}
+.bench-field input{font:500 12px var(--num-font);color:var(--ink);background:var(--screen);border:1px solid var(--line);padding:7px 8px;min-width:0}
+.bench-card .primary{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.bench-panel{margin-bottom:14px}
+.bench-panel h3{margin:0 0 8px;font:700 13px var(--num-font)}
+.bench-panel-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px}
+.bench-panel-head b{font:600 13px var(--num-font)}
+.bench-panel pre{margin:8px 0 0;font:400 11px/1.5 var(--num-font);white-space:pre-wrap;color:var(--muted);max-height:8rem;overflow:auto}
+#bench-last-body{overflow-x:auto}
+.bench-table th,.bench-table td{text-align:left}
+.bench-table td:nth-child(2){text-align:right}
+table.bench-history td:nth-child(2),table.bench-history th:nth-child(2){text-align:left}
+.bench-table .bench-note,.bench-table td:last-child{font:400 10px var(--text-font);color:var(--muted);white-space:normal}
+.bench-fail{color:var(--red)}
