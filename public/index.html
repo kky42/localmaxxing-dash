@@ -34,15 +34,33 @@
 <section class="by-model" id="model-table"></section>
 </section>
 <section id="bench" class="bench-view" role="tabpanel" aria-labelledby="tab-bench" hidden>
-<div class="ledger-head"><div><h2>Bench</h2><small>Measured from the bench's own requests only — TTFT and tok/s here are not the live panel's rolling window. Load is capped at 2 concurrent requests; results land on the inference server.</small></div></div>
+<div class="ledger-head"><div><h2>Bench</h2><small>Measured from the bench's own requests only — TTFT and tok/s here are not the live panel's rolling window. Pick a suite, tap the levels, run: a live readout streams while the GPU takes the load, capped at 2 concurrent requests.</small></div></div>
 <div class="bench-grid">
-<div class="chart-box bench-card"><h3>Decode</h3><p>Streaming decode throughput at 1 and 2 concurrent requests. 32-token warmup, temperature 0, thinking off. tok/s = (completion − 1) / first→last token window.</p><label class="bench-field">Tokens per stream <input id="bench-decode-tokens" type="number" value="384" min="64" max="2048" step="32"></label><button type="button" class="bench-run plain primary" data-suite="decode">Run decode</button></div>
-<div class="chart-box bench-card"><h3>Prefill</h3><p>Cold-prompt prefill throughput and TTFT at several context sizes, after a tiny-prompt overhead calibration. TTFT is bench-only.</p><label class="bench-field">Sizes (tokens, comma-separated) <input id="bench-prefill-sizes" type="text" value="8192,32768,65536"></label><button type="button" class="bench-run plain primary" data-suite="prefill">Run prefill</button></div>
-<div class="chart-box bench-card"><h3>Agent</h3><p>A pi-shaped agent loop: system prompt, tool schema, three turns with scripted tool results. Measures TTFT, decode tok/s, prompt cache hit and tool-call accuracy per turn, at 1 then 2 agents in parallel.</p><button type="button" class="bench-run plain primary" data-suite="agent">Run agent</button></div>
+<aside class="chart-box bench-config">
+<div class="bench-tabs" id="bench-suite-tabs" role="tablist" aria-label="Bench suite"><button type="button" role="tab" data-suite="decode" aria-selected="true">Decode</button><button type="button" role="tab" data-suite="prefill" aria-selected="false">Prefill</button><button type="button" role="tab" data-suite="agent" aria-selected="false">Agent</button></div>
+<p class="bench-suite-note" id="bench-suite-note"></p>
+<div id="bench-suite-panel"></div>
+<p class="bench-summary" id="bench-summary"></p>
+<div class="bench-runbar"><button type="button" id="bench-run" class="bench-run">Run</button></div>
+<p class="bench-run-hint">Load is capped at 2 concurrent requests. The GPU is shared with live agents — results measure the bench's own requests.</p>
+<p class="bench-error" id="bench-error" hidden></p>
+</aside>
+<div class="bench-main">
+<div id="bench-live" class="chart-box bench-live" hidden></div>
+<div id="bench-result" class="chart-box bench-result" hidden></div>
+<div class="chart-box bench-empty" id="bench-empty">
+<h3>Measure the model server</h3>
+<p>Three suites, each scored from the bench's own requests — not the live panel's rolling window.</p>
+<ul>
+<li><i class="bench-suitedot decode"></i><span><b>Decode</b> — streaming generation speed at 1 and 2 concurrent requests.</span></li>
+<li><i class="bench-suitedot prefill"></i><span><b>Prefill</b> — how fast long prompts are ingested, and the time to first token.</span></li>
+<li><i class="bench-suitedot agent"></i><span><b>Agent</b> — a pi-shaped tool loop: accuracy, prompt-cache hit and TTFT per turn.</span></li>
+</ul>
+<p class="bench-empty-hint">Pick a suite on the left and press Run. A decode run takes about a minute.</p>
 </div>
-<div class="chart-box bench-panel" id="bench-active" hidden><div class="bench-panel-head"><b id="bench-active-title"></b><button type="button" id="bench-cancel" class="plain">Cancel</button></div><pre id="bench-active-progress"></pre></div>
-<div class="chart-box bench-panel" id="bench-last" hidden><h3 id="bench-last-title"></h3><div id="bench-last-body"></div></div>
-<div class="chart-box bench-panel"><h3>Recent runs</h3><table class="model-table bench-table bench-history"><thead><tr><th>Started</th><th>Suite</th><th>State</th><th>Model</th><th>Error</th></tr></thead><tbody id="bench-history"></tbody></table></div>
+<div class="chart-box bench-history-box" id="bench-history-box" hidden><div class="chart-head"><h3>Recent runs</h3><small id="bench-history-count"></small></div><div id="bench-history" class="bench-history"></div></div>
+</div>
+</div>
 </section>
 <footer class="foot"><span>SPARK SCOPE</span><span data-i18n="footer.readOnly">Read-only monitor</span></footer>
 </main>
