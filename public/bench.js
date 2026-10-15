@@ -27,7 +27,7 @@ const SUITES = {
 };
 const SUITE_ORDER = ['decode', 'prefill', 'agent'];
 const TOKEN_PRESETS = [128, 384, 768, 1536];
-const SIZE_PRESETS = [8192, 32768, 65536];
+const SIZE_PRESETS = [8192, 32768, 65536, 131072];
 
 const state = {
   suite: 'decode',
