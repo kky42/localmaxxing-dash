@@ -39,7 +39,7 @@ const en = {
   'statusbar.apis': 'APIs {answering}/{count}',
   'statusbar.gpuPower': 'GPU power {watts} W',
   'statusbar.gpuPowerPartial': '({reporting}/{count} nodes)',
-  'statusbar.serverDown': 'Spark Scope server not responding',
+  'statusbar.serverDown': 'Localmaxxing Dash server not responding',
   'statusbar.serverDownDetail': 'Live values read as unknown until the connection returns.',
 
   // The server's status messages (messageKey and messageParams in /api/state). The server sends the same English text
@@ -259,7 +259,7 @@ const en = {
   'settings.design.console': 'Console',
   'settings.design.soft': 'Soft',
   // The mini window (public/mini/).
-  'mini.title': 'Spark Scope mini',
+  'mini.title': 'Localmaxxing mini',
   'mini.openTitle': 'Open mini window (M)',
   'mini.closeTitle': 'Close mini window (M)',
   'mini.tab.glance': 'Glance',
@@ -480,7 +480,7 @@ const en = {
   'settings.copyManually': 'Copy the selected link',
   'settings.done': 'Done',
 
-  'rack.pageTitle': 'Spark Scope rack panel',
+  'rack.pageTitle': 'Localmaxxing rack panel',
   'rack.cluster.waitingData': 'Waiting for data',
   'rack.cluster.waitingBrand': 'Waiting for {brand}',
   'rack.output.caption': 'output (last 5 min)',
@@ -584,7 +584,7 @@ const ko = {
   'statusbar.apis': 'API {answering}/{count}',
   'statusbar.gpuPower': 'GPU 전력 {watts} W',
   'statusbar.gpuPowerPartial': '(노드 {reporting}/{count})',
-  'statusbar.serverDown': 'Spark Scope 서버가 응답하지 않습니다',
+  'statusbar.serverDown': 'Localmaxxing Dash 서버가 응답하지 않습니다',
   'statusbar.serverDownDetail': "다시 연결될 때까지 실시간 값은 '알 수 없음'으로 표시됩니다.",
 
   'status.starting': '첫 측정값을 기다리고 있습니다',
@@ -801,7 +801,7 @@ const ko = {
   'settings.design.console': '콘솔',
   'settings.design.soft': '소프트',
   // The mini window (public/mini/).
-  'mini.title': 'Spark Scope 미니',
+  'mini.title': 'Localmaxxing 미니',
   'mini.openTitle': '미니 창 열기 (M)',
   'mini.closeTitle': '미니 창 닫기 (M)',
   'mini.tab.glance': '요약',
@@ -1021,7 +1021,7 @@ const ko = {
   'settings.copyManually': '직접 복사해 주세요',
   'settings.done': '완료',
 
-  'rack.pageTitle': 'Spark Scope 랙 패널',
+  'rack.pageTitle': 'Localmaxxing 랙 패널',
   'rack.cluster.waitingData': '데이터 대기 중',
   'rack.cluster.waitingBrand': '{brand} 기다리는 중',
   'rack.output.caption': '출력 (최근 5분)',

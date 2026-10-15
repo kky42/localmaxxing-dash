@@ -493,7 +493,7 @@ server.on("error", (error) => {
 
 server.listen(config.port, config.host, () => {
   const shown = config.host.includes(":") ? `[${config.host}]` : config.host;
-  console.log(`Spark Scope: http://${shown}:${server.address().port}/ (rack panel: /rack/)`);
+  console.log(`Localmaxxing Dash: http://${shown}:${server.address().port}/ (rack panel: /rack/)`);
   if (!["127.0.0.1", "::1", "localhost"].includes(config.host)) {
     console.log("Warning: listening beyond localhost. Spark Scope has no authentication; expose it only on a network you trust.");
     console.log(`Accepted host names: localhost, IP addresses, ${hosts.short}, ${hosts.short}.local, ${hosts.short}.<tailnet>.ts.net${config.allowedHosts ? `, ${config.allowedHosts}` : ""} (SPARK_SCOPE_ALLOWED_HOSTS adds more).`);

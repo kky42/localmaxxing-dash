@@ -2,7 +2,7 @@
 import { compact as compactCount, roleName, systemStateText, modelServers, combinedInference, serverName, gpuMemory, memoryWording, hasNodeTemperature, memoryWarning, gpuPowerWatts, outputCoverage, engineNeedsKey } from "../view-data.js";
 import { t, serverText } from "../i18n.js";
 
-export const BRAND = "SPARK SCOPE";
+export const BRAND = "LOCALMAXXING";
 const GIB = 2 ** 30;
 
 export const DISK_WARN_PERCENT = 95;
