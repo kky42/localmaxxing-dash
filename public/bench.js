@@ -1,6 +1,6 @@
 // Bench view: run decode / prefill / agent suites and show results.
 // Self-contained module; talks to /api/bench only. Load lands on the inference
-// server — at most 2 concurrent requests, enforced server-side too. The flow
+// server — at most 8 concurrent requests, enforced server-side too. The flow
 // follows the sparkDash bench pages: chip configuration with a summary line, a
 // live big-number readout while a run is in flight, hero-number results with
 // the detail table underneath, and friendly history rows.
@@ -12,7 +12,7 @@ const SUITES = {
   decode: {
     label: 'Decode',
     run: 'Run decode bench',
-    note: 'Streaming decode tok/s at rising concurrency. 32-token warmup, temperature 0, thinking off; tok/s = (completion − 1) / first→last token window.',
+    note: 'Streaming generation speed at rising concurrency, prose and/or code. Every stream runs the full length; temperature 0, thinking off, 32-token warmup.',
   },
   prefill: {
     label: 'Prefill',
@@ -22,17 +22,19 @@ const SUITES = {
   agent: {
     label: 'Agent',
     run: 'Run agent bench',
-    note: 'A pi-shaped 3-turn tool loop with scripted tool results: tool-call accuracy, prompt-cache hit, decode tok/s and TTFT per turn.',
+    note: 'A pi-shaped tool loop: read a config, run du on the directory it names, answer with the size. Scores each step; the model\'s own correct calls carry forward.',
   },
 };
 const SUITE_ORDER = ['decode', 'prefill', 'agent'];
+const DECODE_TYPES = ['prose', 'code'];
+const TYPE_LABEL = { prose: 'Prose', code: 'Code' };
 const TOKEN_PRESETS = [128, 384, 768, 1536];
 const SIZE_PRESETS = [8192, 32768, 65536, 131072];
 
 const state = {
   suite: 'decode',
   config: {
-    decode: { concurrency: [1], tokens: 384 },
+    decode: { concurrency: [1], tokens: 384, types: ['prose', 'code'] },
     prefill: { sizes: [...SIZE_PRESETS] },
     agent: { concurrency: [1] },
   },
@@ -119,6 +121,11 @@ function renderConfig() {
   const parts = [];
   if (state.suite === 'decode') {
     parts.push(field(
+      'Type',
+      'Prose: the lab hash-map explanation. Code: a different Python task per stream. Pick one or both.',
+      chipsWrap(DECODE_TYPES.map((t) => chip(TYPE_LABEL[t], 'type', t, c.types.includes(t))).join('')),
+    ));
+    parts.push(field(
       'Concurrency',
       'Levels run sequentially; each opens that many parallel streams. The server caps load at 8.',
       chipsWrap([1, 2, 4, 8].map((n) => chip(String(n), 'conc', n, c.concurrency.includes(n))).join('')),
@@ -139,7 +146,7 @@ function renderConfig() {
   } else {
     parts.push(field(
       'Concurrency',
-      'One agent, then two in parallel. Each agent plays the same 3-turn scripted loop.',
+      'Levels run in turn; each runs that many agents in parallel, all on the same 3-step task.',
       chipsWrap([1, 2, 4, 8].map((n) => chip(String(n), 'conc', n, c.concurrency.includes(n))).join('')),
     ));
   }
@@ -152,9 +159,9 @@ function renderConfig() {
 function updateSummary() {
   const c = state.config[state.suite];
   let text;
-  if (state.suite === 'decode') text = `Decode · concurrency ${c.concurrency.join(' + ')} · ${c.tokens} tokens/stream`;
+  if (state.suite === 'decode') text = `Decode · ${c.types.map((t) => TYPE_LABEL[t].toLowerCase()).join(' + ')} · concurrency ${c.concurrency.join(' + ')} · ${c.tokens} tokens/stream`;
   else if (state.suite === 'prefill') text = `Prefill · ${c.sizes.map(humanSize).join(', ')} tokens`;
-  else text = `Agent · ${c.concurrency.join(' + ')} concurrent · 3 scripted turns`;
+  else text = `Agent · ${c.concurrency.join(' + ')} concurrent · 3-step task`;
   el('bench-summary').textContent = text;
 }
 
@@ -165,7 +172,12 @@ function wireConfig() {
       const kind = button.dataset.kind;
       const value = Number(button.dataset.value);
       const c = state.config[state.suite];
-      if (kind === 'conc') {
+      if (kind === 'type') {
+        const type = button.dataset.value;
+        const has = c.types.includes(type);
+        if (has && c.types.length === 1) return; // keep at least one type
+        c.types = DECODE_TYPES.filter((t) => (t === type ? !has : c.types.includes(t)));
+      } else if (kind === 'conc') {
         const has = c.concurrency.includes(value);
         if (has && c.concurrency.length === 1) return; // keep at least one level
         c.concurrency = has ? c.concurrency.filter((n) => n !== value) : [...c.concurrency, value].sort((a, b) => a - b);
@@ -220,13 +232,16 @@ function parseLiveTps(progress) {
 }
 
 function progressSteps(job) {
+  // The server sends the run's spec with the live job; fall back to this page's config for an older server.
+  const spec = job.spec ?? { ...state.config[job.suite], prefillSizes: state.config.prefill.sizes, decodeTypes: state.config.decode.types };
   const lines = job.progress ?? [];
-  const waves = (job.spec?.concurrency ?? [1, 2]).length;
+  const waves = (spec.concurrency ?? [1]).length;
   if (job.suite === 'decode') {
-    return { done: lines.filter((l) => /warmup done|decode c=/.test(l)).length, total: 1 + waves };
+    const types = (spec.decodeTypes ?? DECODE_TYPES).length;
+    return { done: lines.filter((l) => /warmup done|decode \w+ c=/.test(l)).length, total: 1 + waves * types };
   }
   if (job.suite === 'prefill') {
-    return { done: lines.filter((l) => /overhead calibration|prefill \d/.test(l)).length, total: 1 + (job.spec?.prefillSizes?.length || 3) };
+    return { done: lines.filter((l) => /overhead calibration|prefill \d/.test(l)).length, total: 1 + (spec.prefillSizes?.length || SIZE_PRESETS.length) };
   }
   return { done: lines.filter((l) => /agent c=/.test(l)).length, total: waves };
 }
@@ -288,8 +303,6 @@ function startTicker() {
 
 /* ── results ─────────────────────────────────────────────────────────── */
 
-const table = (rows) => `<table class="model-table bench-table"><tbody>${rows.join('')}</tbody></table>`;
-const row = (label, value, note) => `<tr><td>${label}</td><td><b>${value}</b></td><td>${note}</td></tr>`;
 
 function resultHead(run) {
   const result = run.result ?? {};
@@ -299,109 +312,100 @@ function resultHead(run) {
     (run.error && run.state !== 'done' ? `<p class="bench-inline-error">${esc(run.error)}</p>` : '');
 }
 
-function hero({ badge, label, value, unit, tier = '', bar = 0, facts = '' }) {
+function hero({ badge, label, value, unit, tier = '', facts = '' }) {
   return `<div class="bench-hero">
     <div class="bench-hero-top">${badge ? `<span class="bench-wave">${badge}</span>` : ''}<span class="bench-hero-label">${label}</span></div>
     <span class="bench-hero-value num ${tier}">${value}${unit ? `<small>${unit}</small>` : ''}</span>
-    ${bar ? `<div class="bench-hero-bar"><i style="width:${bar}%"></i></div>` : ''}
     ${facts ? `<div class="bench-hero-facts">${facts}</div>` : ''}
   </div>`;
 }
 
-function decodeHeroes(result) {
+/** A compact grid: header row, then one row per entry. Cells are pre-escaped HTML; columns in textCols stay left-aligned. */
+function grid(head, rows, caption = '', textCols = []) {
+  const cls = (i) => (textCols.includes(i) ? ' class="txt"' : '');
+  return `${caption ? `<h4 class="bench-grid-title">${caption}</h4>` : ''}<table class="model-table bench-table bench-matrix"><thead><tr>${head.map((h, i) => `<th${cls(i)}>${h}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c, i) => `<td${cls(i)}>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
+
+/** tok/s with one decimal (thousands without). */
+const tps = (value) => (value == null ? '—' : value >= 1000 ? fmt(value) : (Math.round(value * 10) / 10).toFixed(1));
+const ms = (value) => (value == null ? '—' : `${fmt(Math.round(value))} ms`);
+
+/** Decode: one small table per type — aggregate, per stream, TTFT for each concurrency level. */
+function decodeView(result) {
   const waves = result.waves ?? [];
-  const max = Math.max(0, ...waves.map((w) => w.decodeTps ?? 0));
-  return waves.map((w) => hero({
-    badge: `×${w.concurrency}`,
-    label: 'Aggregate decode',
-    value: fmt(w.decodeTps),
-    unit: 'tok/s',
-    bar: max > 0 && w.decodeTps != null ? Math.max(2, Math.round((w.decodeTps / max) * 100)) : 0,
-    facts: `stream ${fmt(w.meanStreamTps)} tok/s · TTFT ${fmt(w.ttft?.median)}/${fmt(w.ttft?.p95)} ms`,
-  })).join('');
-}
-
-function prefillHeroes(result) {
-  const sizes = result.sizes ?? [];
-  const max = Math.max(0, ...sizes.map((s) => s.prefillTps ?? 0));
-  return sizes.map((s) => hero({
-    badge: humanSize(s.requestedTokens),
-    label: 'Prefill tok/s',
-    value: fmt(s.prefillTps),
-    unit: 'tok/s',
-    bar: max > 0 && s.prefillTps != null ? Math.max(2, Math.round((s.prefillTps / max) * 100)) : 0,
-    facts: `TTFT ${fmt(s.ttftMs)} ms${s.cachedTokens ? ` · cached ${fmt(s.cachedTokens)}` : ''}`,
-  })).join('');
-}
-
-function agentHeroes(waves) {
-  return waves.map((w) => {
-    const acc = w.toolcallAccuracy;
-    const tier = acc == null ? '' : acc >= 90 ? 'is-good' : acc >= 70 ? 'is-warn' : 'is-bad';
-    return hero({
-      badge: `×${w.concurrency}`,
-      label: 'Tool-call accuracy',
-      value: fmt(acc),
-      unit: '%',
-      tier,
-      facts: `<span>cache hit ${fmt(w.promptCacheHitPercent)}%</span><span>decode ${fmt(w.meanTurnDecodeTps)} tok/s</span><span>TTFT ${fmt(w.ttft?.median)} ms</span>`,
-    });
+  // Older runs mixed prose/code streams in one wave with no type.
+  const types = [...new Set(waves.map((w) => w.type ?? 'mixed'))];
+  return types.map((type) => {
+    const rows = waves.filter((w) => (w.type ?? 'mixed') === type).map((w) => [
+      `×${w.concurrency}`,
+      `<b>${tps(w.decodeTps)}</b>`,
+      tps(w.meanStreamTps),
+      ms(w.ttft?.median),
+      w.failed ? `<span class="bench-bad">${w.failed} failed</span>` : '',
+    ]);
+    return grid(['Concurrency', 'Aggregate tok/s', 'Per stream tok/s', 'TTFT', ''], rows, TYPE_LABEL[type] ?? 'Prose + code (mixed)');
   }).join('');
 }
 
-function decodeTable(result) {
-  const rows = [];
-  for (const w of result.waves ?? []) {
-    rows.push(row(`Decode ×${w.concurrency}`, `${fmt(w.decodeTps)} tok/s`, 'Σ decode tokens / concurrent first→last token window'));
-    rows.push(row(`· per stream ×${w.concurrency}`, `${fmt(w.meanStreamTps)} tok/s`, "mean of each stream's own rate"));
-    rows.push(row(`· window ×${w.concurrency}`, `${fmt(w.windowDecodeTps)} tok/s`, 'Σ tokens / whole wave wall time (includes TTFT)'));
-    (w.perRequest ?? []).forEach((r, i) => {
-      if (r.error) rows.push(row(`· stream ${i + 1} ×${w.concurrency}`, 'failed', esc(r.error)));
-      else rows.push(row(`· stream ${i + 1} ×${w.concurrency}`, `${fmt(r.decodeTps)} tok/s`, `${fmt(r.decodeTokens)} tokens${r.singleChunk ? ' · single chunk' : ''}${r.usageEstimated ? ' · usage estimated' : ''}`));
+/** Prefill: size, prompt tokens, speed, TTFT. */
+function prefillView(result) {
+  const rows = (result.sizes ?? []).map((s) => [
+    humanSize(s.requestedTokens),
+    fmt(s.promptTokens),
+    s.error ? `<span class="bench-bad">${esc(s.error)}</span>` : `<b>${tps(s.prefillTps)}</b>${s.lowConfidence ? ' <small title="TTFT is close to the fixed overhead, or tokens were estimated">≈</small>' : ''}`,
+    ms(s.ttftMs),
+    s.cachedTokens ? `${fmt(s.cachedTokens)} cached` : '',
+  ]);
+  return grid(['Prompt', 'Tokens', 'Prefill tok/s', 'TTFT', ''], rows);
+}
+
+/** Agent: a hero per level, then one row per step with who missed and why. */
+function agentView(result) {
+  const waves = result.waves ?? [];
+  const heroes = waves.map((w) => {
+    const acc = w.toolcallAccuracy;
+    const tier = acc == null ? '' : acc >= 90 ? 'is-good' : acc >= 70 ? 'is-warn' : 'is-bad';
+    const agents = w.concurrency;
+    const done = w.tasksCompleted;
+    return hero({
+      badge: `×${w.concurrency}`,
+      label: 'Step accuracy',
+      value: fmt(acc),
+      unit: '%',
+      tier,
+      facts: `<span>${done != null ? `${done}/${agents} task${agents === 1 ? '' : 's'} done` : ''}</span><span>cache hit ${fmt(w.promptCacheHitPercent)}%</span><span>TTFT ${ms(w.ttft?.median)}</span>`,
     });
-  }
-  if (result.benchTtft) rows.push(row('Bench TTFT', `${fmt(result.benchTtft.median)} / ${fmt(result.benchTtft.p95)} ms`, `median / p95 over ${result.benchTtft.n} bench requests (not the home page's live p95)`));
-  return rows.length ? table(rows) : '';
-}
-
-function prefillTable(result) {
-  const rows = [row('Overhead', `${fmt(result.overheadMs)} ms`, 'median TTFT of tiny prompts, subtracted from each TTFT')];
-  for (const s of result.sizes ?? []) {
-    const notes = [s.error ?? `TTFT ${fmt(s.ttftMs)} ms`];
-    if (s.cachedTokens != null) notes.push(`cached ${fmt(s.cachedTokens)}`);
-    if (s.lowConfidence) notes.push('low confidence');
-    if (s.usageEstimated) notes.push('tokens estimated');
-    rows.push(row(`Prompt ${humanSize(s.requestedTokens)}`, `${fmt(s.prefillTps)} tok/s`, esc(notes.join(' · '))));
-  }
-  if (result.benchTtft) rows.push(row('Bench TTFT', `${fmt(result.benchTtft.median)} / ${fmt(result.benchTtft.p95)} ms`, `median / p95 over ${result.benchTtft.n} bench requests`));
-  return table(rows);
-}
-
-function agentTable(waves) {
-  const rows = [];
-  for (const w of waves ?? []) {
-    for (const t of w.turns ?? []) {
-      const called = t.called ? `${t.called} ${t.argsOk ? '✓' : '✗ bad args'}` : 'answer';
-      const note = [t.accurate ? 'as expected' : `expected ${t.expected ?? 'a plain answer'}`, t.decodeNote].filter(Boolean).join('; ');
-      rows.push(row(`×${w.concurrency} turn ${t.index + 1}`, `${esc(called)} · ${fmt(t.decodeTps)} tok/s`, esc(note)));
+  }).join('');
+  const tables = waves.map((w) => {
+    if (!w.steps) {
+      // Runs from before the 3-step task: one row per turn.
+      return grid(['Turn', 'Called', 'Result'], (w.turns ?? []).map((t) => [`${t.index + 1}`, esc(t.called ?? 'answer'), t.accurate ? 'ok' : `<span class="bench-bad">expected ${esc(t.expected ?? 'a plain answer')}</span>`]), `×${w.concurrency} (old bench)`);
     }
-  }
-  return rows.length ? table(rows) : '';
+    const rows = w.steps.map((st) => [
+      `${st.index + 1}`,
+      esc(st.expected),
+      `<b class="${st.correct === st.total ? '' : 'bench-bad'}">${st.correct}/${st.total}</b>`,
+      ms(st.ttft?.median),
+      st.misses.length ? `<small>${esc(st.misses.slice(0, 2).join(' · '))}${st.misses.length > 2 ? ` · +${st.misses.length - 2} more` : ''}</small>` : '',
+    ]);
+    return grid(['Step', 'Expected', 'Correct', 'TTFT', ''], rows, waves.length > 1 ? `×${w.concurrency}` : '', [1]);
+  }).join('');
+  return `<div class="bench-heroes">${heroes}</div>${tables}`;
 }
 
 const LEGENDS = {
-  decode: '<strong>Aggregate</strong> — Σ decode tokens over the concurrent first→last token window. <strong>Stream</strong> — per-stream mean. Measured from the bench\'s own requests only.',
-  prefill: '<strong>Prefill tok/s</strong> excludes the calibrated tiny-prompt overhead; <strong>TTFT</strong> is measured from the bench\'s own requests only.',
-  agent: '<strong>Accuracy</strong> — turns that called the expected tool (or produced a plain answer) with valid JSON arguments. <strong>Cache hit</strong> — cached / prompt tokens across turns.',
+  decode: '<strong>Aggregate</strong> — all streams\' tokens over the shared first→last token window. <strong>Per stream</strong> — what one user sees. <strong>TTFT</strong> — median time to first token.',
+  prefill: '<strong>Prefill tok/s</strong> — cold prompt tokens over TTFT, minus the fixed overhead of a tiny prompt; ≈ marks a low-confidence point.',
+  agent: '<strong>Step accuracy</strong> — steps that called the right tool with sensible arguments (or gave the right answer). <strong>Cache hit</strong> — cached / prompt tokens across turns.',
 };
 
 function renderResult(run) {
   const result = run.result ?? {};
   let body = resultHead(run);
   if (result) {
-    if (run.suite === 'decode') body += `<div class="bench-heroes">${decodeHeroes(result)}</div>${decodeTable(result)}`;
-    else if (run.suite === 'prefill') body += `<div class="bench-heroes">${prefillHeroes(result)}</div>${prefillTable(result)}`;
-    else body += `<div class="bench-heroes">${agentHeroes(result.waves ?? [])}</div>${agentTable(result.waves ?? [])}`;
+    if (run.suite === 'decode') body += decodeView(result);
+    else if (run.suite === 'prefill') body += prefillView(result);
+    else body += agentView(result);
   }
   if (LEGENDS[run.suite]) body += `<p class="bench-legend">${LEGENDS[run.suite]}</p>`;
   el('bench-result').innerHTML = body;
@@ -414,8 +418,15 @@ function headline(run) {
   if (!r) return null;
   const best = (list, get) => list.reduce((a, x) => ((get(x) ?? -1) > (get(a) ?? -1) ? x : a), null);
   if (run.suite === 'decode') {
-    const w = best(r.waves ?? [], (x) => x.decodeTps);
-    return w?.decodeTps != null ? `${fmt(w.decodeTps)} tok/s` : null;
+    // e.g. "prose ×1 53.6 · ×4 103 tok/s": the lowest and highest level of the first type.
+    const waves = r.waves ?? [];
+    const type = waves[0]?.type;
+    const ofType = waves.filter((w) => w.type === type && w.decodeTps != null);
+    if (!ofType.length) return null;
+    const lo = ofType[0];
+    const hi = ofType[ofType.length - 1];
+    const levels = lo === hi ? `×${lo.concurrency} ${fmt(lo.decodeTps)}` : `×${lo.concurrency} ${fmt(lo.decodeTps)} · ×${hi.concurrency} ${fmt(hi.decodeTps)}`;
+    return `${type ? `${type} ` : ''}${levels} tok/s`;
   }
   if (run.suite === 'prefill') {
     const s = best((r.sizes ?? []).filter((x) => x.prefillTps != null), (x) => x.prefillTps);
@@ -537,7 +548,10 @@ async function startRun() {
   const spec = { suite: state.suite };
   const c = state.config[state.suite];
   if (state.suite !== 'prefill') spec.concurrency = [...c.concurrency];
-  if (state.suite === 'decode') spec.decodeTokens = c.tokens;
+  if (state.suite === 'decode') {
+    spec.decodeTokens = c.tokens;
+    spec.decodeTypes = [...c.types];
+  }
   if (state.suite === 'prefill') spec.prefillSizes = [...c.sizes];
   state.starting = true;
   updateRunButton();

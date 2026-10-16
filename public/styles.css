@@ -403,6 +403,12 @@ button.server-row[aria-pressed=true]{background:var(--hover);color:var(--ink);bo
 .bench-table{margin-top:2px}
 .bench-table th,.bench-table td{text-align:left}
 .bench-table td:last-child{font:400 10.5px var(--text-font);color:var(--muted);white-space:normal}
+.bench-matrix{margin-bottom:14px}
+.bench-matrix th:not(:first-child):not(:last-child),.bench-matrix td:not(:first-child):not(:last-child){text-align:right}
+.bench-matrix td:first-child{font-weight:600}
+.bench-matrix th.txt:not(:first-child),.bench-matrix td.txt:not(:first-child){text-align:left}
+.bench-grid-title{margin:6px 0 4px;font:600 10px var(--num-font);letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.bench-bad{color:var(--red)}
 .bench-legend{margin:12px 0 0;font-size:10.5px;line-height:1.55;color:var(--muted)}
 .bench-legend strong{font-weight:600;color:var(--muted)}
 #bench-result{overflow-x:auto}
