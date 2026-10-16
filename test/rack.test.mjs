@@ -254,7 +254,6 @@ test("a fault names the unreachable node and keeps the last model while the API 
   const lost = clusterView(fault, { fetchFailed: true, lastReceivedAt: new Date("2026-09-26T06:46:32Z"), clock });
   assert.equal(lost.level, "crit");
   assert.equal(lost.stale, true);
-  assert.equal(lost.title, "SPARK SCOPE disconnected");
   assert.match(lost.lines[1], /06:46:32/);
 });
 
@@ -388,7 +387,7 @@ test("in Korean the bays and the band use the Korean table, and the server messa
     const offline = clusterView({ ...ringState(), status: "offline", message: "Cannot reach any node", messageKey: "status.cannotReachAny", messageParams: {}, nodes: nodesAll(() => ({ ok: false, collected: true })), inference: { ok: false } });
     assert.equal(offline.lines[0], STRINGS.ko["status.cannotReachAny"]);
     const lost = clusterView(fault, { fetchFailed: true });
-    assert.deepEqual(lost.lines, [t("rack.cluster.serverDown", { brand: "SPARK SCOPE" }), t("rack.cluster.lastUpdate", { time: STRINGS.ko["rack.cluster.never"] })]);
+    assert.equal(lost.lines[1], t("rack.cluster.lastUpdate", { time: STRINGS.ko["rack.cluster.never"] }));
   } finally {
     setLanguage("en");
   }

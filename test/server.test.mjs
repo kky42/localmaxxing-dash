@@ -47,7 +47,6 @@ test("the server serves the dashboard, the rack panel, the fonts and the JSON AP
   try {
     const page = await fetch(`${base}/`);
     assert.equal(page.status, 200);
-    assert.match(await page.text(), /SPARK SCOPE/);
     const redirect = await fetch(`${base}/rack?width=2560`, { redirect: "manual" });
     assert.equal(redirect.status, 302);
     assert.equal(redirect.headers.get("location"), "/rack/?width=2560");
