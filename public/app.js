@@ -1,5 +1,5 @@
 import { mountMini } from './mini/mini-view.js';
-import { PHONE_QUERY, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, gpuMemory, memoryWording, readingLabel, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, prefillSeries, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, serverStateKey, pickedServer, viewInference, engineMetric, nodeReading, hasNodeTemperature, memoryWarning, outputCoverage, engineNeedsKey } from './view-data.js';
+import { PHONE_QUERY, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, gpuMemory, memoryWording, readingLabel, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, prefillSeries, prefillBands, prefillingText, bandText, clockSpan, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, serverStateKey, pickedServer, viewInference, engineMetric, nodeReading, hasNodeTemperature, memoryWarning, outputCoverage, engineNeedsKey } from './view-data.js';
 import { READING_IDS, rackQuery, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
 import { t, setLanguage, translatePage, serverText, LANGUAGE_NAMES } from './i18n.js';
 import { hide as hideHelp } from './help.js';
@@ -109,7 +109,7 @@ function renderLinks(state) {
 function chartSeries(state) {
   const history=state.history||[];if(!severalServers(state)||settings.servers!=='one')return history;
   const id=pickedServer(modelServers(state),settings.server).id;
-  return history.map(point=>({at:point.at,outputTokensPerSecond:null,runningRequests:null,queue:null,prefillAt:null,prefillRate:null,...point.servers?.[id]}));
+  return history.map(point=>({at:point.at,outputTokensPerSecond:null,runningRequests:null,queue:null,prefillAt:null,prefillRate:null,prefillStartedAt:null,prefillShare:null,...point.servers?.[id]}));
 }
 // The mean output over the samples with requests running, as the server computes it for the totals.
 function activeAverage(points){const rates=points.filter(point=>point.runningRequests>0&&finite(point.outputTokensPerSecond)).map(point=>point.outputTokensPerSecond);return rates.length?rates.reduce((sum,rate)=>sum+rate,0)/rates.length:null}
@@ -136,6 +136,11 @@ function renderCharts(state) {
   const prefillBox={start,end,min:0,max:Math.max(1,...prefill.map(p=>p.value).filter(finite))*1.15,top:4,bottom:22};
   $('#prefill-line').setAttribute('d',chartPath(prefill,'value',prefillBox));
   $('#prefill-avg-line').setAttribute('d',finite(prefillAvg)?chartPath([{at:start,value:prefillAvg},{at:end,value:prefillAvg}],'value',prefillBox):'');
+  // Prompt passes seen running, shaded from start to end (now while one runs). Those of 10 s or more are tagged: the
+  // tokens an ended one computed, or how long a running one has run.
+  const x=at=>Math.min(800,Math.max(0,(at-start)/Math.max(1,end-start)*800)),bands=prefillBands(history,end).filter(band=>band.end>start);
+  $('#prefill-bands').innerHTML=bands.map(band=>`<rect x="${x(band.start).toFixed(1)}" y="0" width="${Math.max(1,x(band.end)-x(band.start)).toFixed(1)}" height="140" fill="var(--orange)" opacity=".14"><title>${esc(bandText(band))}</title></rect>`).join('');
+  $('#prefill-tags').innerHTML=bands.filter(band=>band.end-band.start>=10_000).map(band=>`<span style="left:${(x(band.start)/8).toFixed(2)}%">${esc(finite(band.tokens)?`~${compact(band.tokens)}`:clockSpan((band.end-band.start)/1000))}</span>`).join('');
   const label=value=>clock(value,{seconds:false});
   text('#range-start',label(start));text('#range-mid',label((start+end)/2));text('#range-end',label(end));
   const shownStopped=several&&!each?pickedServer(modelServers(state),settings.server).inferenceState==='stopped':state.inferenceState==='stopped';
@@ -190,7 +195,7 @@ function drawState(state) {
   // The big figure and the legend follow the total over the servers, or the picked one in "one at a time".
   const focusStopped=several&&settings.servers==='one'?pickedServer(servers,settings.server).inferenceState==='stopped':stopped;
   const empty=focusStopped?t('common.stopped'):unknown(),value=(number,formatter=fixed)=>focus?.ok?formatter(number):empty;
-  text('#speed',value(focus?.outputTokensPerSecond));text('#legend-speed',value(focus?.outputTokensPerSecond));text('#prefill',value(focus?.promptComputeTokensPerSecond??focus?.promptTokensPerSecond,n=>fixed(n,0)));
+  text('#speed',value(focus?.outputTokensPerSecond));text('#legend-speed',value(focus?.outputTokensPerSecond));text('#prefill',focus?.ok&&focus.activePrefill?t('chart.legend.prefilling',{elapsed:clockSpan((Date.now()-Date.parse(focus.activePrefill.startedAt))/1000)}):value(focus?.promptComputeTokensPerSecond??focus?.promptTokensPerSecond,n=>fixed(n,0)));
   renderServers(state);renderEngines(state);$('#servers-choice').hidden=!several;
   metas.forEach(meta=>renderNode(meta,nodes[meta.id]));renderLinks(state);renderCharts(state);renderToday(state.usage);
   if(dialog.open)renderPreview();
@@ -222,11 +227,14 @@ function fillEngine(block,v,stopped) {
   // The "since the engine started" notes belong to this panel's server; a reused or copied panel starts without them.
   block.querySelectorAll('.help[data-help-note]').forEach(button=>{button.dataset.helpNote=''});
   block.querySelectorAll('[data-field]').forEach(el=>{
-    const {key,label,help,shown,idle}=engineMetric(v,el.dataset.field),dt=el.previousElementSibling;
+    const metric=engineMetric(v,el.dataset.field),{key,shown,idle}=metric,dt=el.previousElementSibling;
+    // While a prompt pass runs, the Prefill row follows it: a pass's rate is reported only when it ends.
+    const pass=v?.ok&&v.activePrefill&&['promptComputeTokensPerSecond','promptTokensPerSecond'].includes(key)?v.activePrefill:null;
+    const label=pass?'engine.prefilling':metric.label,help=pass?'help.prefillActive':metric.help;
     el.hidden=dt.hidden=!shown;
     const caption=dt.querySelector('[data-metric-label]');if(caption)caption.textContent=t(label);
     const button=dt.querySelector('.help');if(button){button.hidden=!help;if(help)button.dataset.help=help}
-    let result=empty;if(v?.ok){if(idle)result=t('engine.noRequests');else if(key==='requests')result=`${fixed(v.runningRequests,0)} / ${fixed(v.waitingRequests,0)}`;else if(key.endsWith('RecentSeconds'))result=recentLatency(el,v,key);else if(key.endsWith('Seconds'))result=duration(v[key]);else if(key.endsWith('Percent'))result=fixed(v[key],1,'%');else result=tokenRate(v[key])}el.textContent=result;
+    let result=empty;if(v?.ok){if(pass)result=prefillingText(pass);else if(idle)result=t('engine.noRequests');else if(key==='requests')result=v.activePrefill?t('engine.requestsPrefilling',{running:fixed(v.runningRequests,0),waiting:fixed(v.waitingRequests,0),prefilling:1}):`${fixed(v.runningRequests,0)} / ${fixed(v.waitingRequests,0)}`;else if(key.endsWith('RecentSeconds'))result=recentLatency(el,v,key);else if(key.endsWith('Seconds'))result=duration(v[key]);else if(key.endsWith('Percent'))result=fixed(v[key],1,'%');else result=tokenRate(v[key])}el.textContent=result;
   });
   block.querySelectorAll('.engine-section').forEach(section=>{section.hidden=[...section.querySelectorAll('[data-field]')].every(el=>el.hidden)});
 }

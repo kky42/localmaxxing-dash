@@ -213,7 +213,7 @@ test("a poll without history adds its own sample to the history the page already
   };
   const point = livePoint(state);
   assert.deepEqual(point, {
-    at: Date.parse('2026-10-02T03:00:02Z'), outputTokensPerSecond: 61.3, promptTokensPerSecond: 2104, runningRequests: 2, queue: 0, prefillAt: null, prefillRate: null,
+    at: Date.parse('2026-10-02T03:00:02Z'), outputTokensPerSecond: 61.3, promptTokensPerSecond: 2104, runningRequests: 2, queue: 0, prefillAt: null, prefillRate: null, prefillStartedAt: null, prefillShare: null,
     nodes: { 1: { temperature: 57, memoryAvailableBytes: 9.5 * 2 ** 30 }, 2: { temperature: null, memoryAvailableBytes: null } },
   });
   const old = { at: point.at - 61 * 60_000 }, recent = { at: point.at - 2000 };
@@ -553,4 +553,26 @@ test("the prefill line is the pass first seen at each point, zero while prefill 
   const point = (at, prefillAt, prefillRate, runningRequests = 1) => ({ at, prefillAt, prefillRate, runningRequests });
   const series = prefillSeries([point(1000, null, null), point(3000, 2500, 1500), point(5000, 2500, 1500), point(7000, null, null, null), point(9000, 8800, 900)]);
   assert.deepEqual(series.map((p) => p.value), [0, 1500, 0, null, 900]);
+});
+
+test("a prompt pass seen running is a band, a gap on the prefill line until it ends, then drawn at its rate", async () => {
+  const { prefillSeries, prefillBands, bandText, prefillingText, clockSpan } = await import("../public/view-data.js");
+  const point = (at, started = null, prefillAt = null, prefillRate = null) => ({ at, runningRequests: 1, prefillAt, prefillRate, prefillStartedAt: started, prefillShare: started ? 0.2042 : null });
+  const running = [point(1000), point(3000, 2500), point(5000, 2500), point(7000, 2500)];
+  assert.deepEqual(prefillBands(running, 8000).map(({ start, end, running: on }) => [start, end, on]), [[2500, 8000, true]]);
+  assert.deepEqual(prefillSeries(running).map((p) => p.value), [0, null, null, null]);
+  // The pass ends; its rate is first seen at 8,600 and read at 9,000: the band ends there, and its points take the rate.
+  const ended = [...running, point(9000, null, 8600, 1800), point(11000)];
+  const [band] = prefillBands(ended, 12000);
+  assert.deepEqual([band.start, band.end, band.running, band.rate, band.share], [2500, 8600, false, 1800, 0.2042]);
+  assert.equal(Math.round(band.tokens), 10980, "about rate x length computed");
+  assert.equal(bandText(band), "Prompt pass, 0:06: about 11K tokens computed at 1,800 tok/s");
+  assert.deepEqual(prefillSeries(ended).map((p) => p.value), [0, 1800, 1800, 1800, 1800, 0]);
+  // A pass that ended with no rate (cancelled) leaves its points at zero.
+  assert.deepEqual(prefillSeries([...running, point(9000), point(11000)]).map((p) => p.value), [0, 0, 0, 0, 0, 0]);
+  assert.equal(clockSpan(100.4), "1:40");
+  assert.equal(clockSpan(null), "0:00");
+  const startedAt = new Date(1_000_000).toISOString();
+  assert.equal(prefillingText({ startedAt, contextShare: 0.2042 }, 1_100_000), "20.4% ctx · 1:40");
+  assert.equal(prefillingText({ startedAt, contextShare: null }, 1_005_000), "0:05");
 });

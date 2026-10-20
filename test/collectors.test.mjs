@@ -1446,3 +1446,41 @@ test("recent latency comes from histogram differences over the last 5 minutes an
   recent.add(31 * MIN, { ttft: buckets([2, 3, 9, 9]), tpot: buckets([1, 1, 1, 1]) });
   assert.equal(recent.windowSeconds, 0);
 });
+
+test("TensorFold: a prompt pass is inferred while a running request is missing from the stream list or its newest stream stands still", async () => {
+  const { InferenceCollector } = await import("../lib/collectors.mjs");
+  const scrape = (streams, running) => tensorfoldScrape({ modern: true, streams }).replace(/^tensorfold:num_requests_running \d+$/m, `tensorfold:num_requests_running ${running}`);
+  await withFakeEngine(scrape([0.05, 0.08], 2), async (base, setMetrics, setHealth) => {
+    const live = (prefill = 0) => ({ ...tensorfoldNative.healthStart, live: { ...tensorfoldNative.healthStart.live, decode_tokens_per_second: 40, prefill_tokens_per_second: prefill } });
+    setHealth(live());
+    const collector = new InferenceCollector(base);
+    const poll = async (streams, running, back = 2000) => {
+      setMetrics(scrape(streams, running));
+      if (collector.activePass) collector.activePass.at -= back, collector.activePass.seen -= back;
+      return collector.collect();
+    };
+    assert.equal((await collector.collect()).activePrefill, null, "first sight: nothing stood still yet");
+    // Both streams decode: no pass.
+    assert.equal((await poll([0.0501, 0.0802], 2)).activePrefill, null);
+    // A third request is admitted and listed with its prompt (the others decode between its chunks); it stands still.
+    assert.equal((await poll([0.0502, 0.0803, 0.2042], 3)).activePrefill, null, "seen once: not still yet");
+    const running = await poll([0.0503, 0.0804, 0.2042], 3);
+    assert.equal(running.activePrefill.contextShare, 0.2042);
+    const startedAt = running.activePrefill.startedAt;
+    assert.ok(Date.parse(startedAt) < Date.parse(running.updatedAt));
+    // An older stream ends meanwhile: the same pass, the same start.
+    assert.equal((await poll([0.0804, 0.2042], 2)).activePrefill.startedAt, startedAt);
+    // Its pass ends: the stream decodes, no pass.
+    assert.equal((await poll([0.0805, 0.2043], 2)).activePrefill, null);
+    // A request admitted while nothing else decodes is missing from the stale list: a pass, without its size.
+    const lone = await poll([0.0805, 0.2043], 3);
+    assert.ok(lone.activePrefill);
+    assert.equal(lone.activePrefill.contextShare, null);
+    // That pass ends (its rate seen) and the next queued one starts at once, the list still stale: a new pass from then.
+    setHealth(live(1500));
+    const next = await poll([0.0805, 0.2043], 3);
+    assert.ok(Date.parse(next.activePrefill.startedAt) > Date.parse(lone.activePrefill.startedAt));
+    setHealth(live());
+    assert.equal((await poll([], 0)).activePrefill, null, "idle");
+  });
+});

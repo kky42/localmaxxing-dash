@@ -451,3 +451,4 @@ button.server-row[aria-pressed=true]{background:var(--hover);color:var(--ink);bo
 .bench-runrow-main>.bench-pill{grid-area:pill;justify-self:start}
 .bench-runrow-headline{grid-area:headline}
 }
+.prefill-tags{position:absolute;left:0;right:0;bottom:25px;height:140px;pointer-events:none}.prefill-tags span{position:absolute;top:2px;padding-left:3px;font:600 10px var(--num-font);color:var(--orange);white-space:nowrap}

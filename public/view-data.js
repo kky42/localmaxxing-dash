@@ -112,6 +112,7 @@ export function combinedInference(servers) {
     tpotP95RecentSeconds: max('tpotP95RecentSeconds'),
     latencyWindowSeconds: max('latencyWindowSeconds'),
     prefillUpdatedAt: latest(ok, 'prefillUpdatedAt'),
+    activePrefill: ok.map((reading) => reading.activePrefill).filter((pass) => finite(Date.parse(pass?.startedAt ?? ''))).sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt))[0] ?? null,
     updatedAt: latest(ok, 'updatedAt'),
     error: null,
   };
@@ -395,14 +396,67 @@ export function prefillPass(inference) {
 function latestPass(passes) {
   return passes.reduce((latest, pass) => (finite(pass.prefillAt) && !(pass.prefillAt <= latest.prefillAt) ? pass : latest), { prefillAt: null, prefillRate: null });
 }
+// The prompt pass running at a point, as lib/history.mjs keeps it: its start (ms) and the context its prompt fills.
+const NO_PASS = { prefillStartedAt: null, prefillShare: null };
+export function runningPass(inference) {
+  const pass = inference?.ok ? inference.activePrefill : null;
+  const at = Date.parse(pass?.startedAt ?? '');
+  return finite(at) ? { prefillStartedAt: at, prefillShare: pass.contextShare ?? null } : NO_PASS;
+}
+function firstRunning(passes) {
+  return passes.reduce((first, pass) => (finite(pass.prefillStartedAt) && !(pass.prefillStartedAt >= first.prefillStartedAt) ? pass : first), NO_PASS);
+}
+const freshPass = (point, previous) => finite(point.prefillAt) && finite(point.prefillRate) && !(point.prefillAt <= previous?.at);
+// The prompt passes seen running: each run of points with the same start. A pass's rate arrives when it ends, at the
+// point that ends its run or the one after; it ends then (when that rate was first seen), or at that point without
+// one. The last run, still going at the newest point, ends `now`. An ended pass computed about rate x its length.
+export function prefillBands(history, now = Date.now()) {
+  const list = history ?? [];
+  const bands = [];
+  for (let first = 0; first < list.length; first++) {
+    const start = list[first].prefillStartedAt;
+    if (!finite(start)) continue;
+    let next = first + 1;
+    while (next < list.length && list[next].prefillStartedAt === start) next++;
+    const running = next === list.length;
+    const ended = running ? undefined : [next, next + 1].find((index) => index < list.length && freshPass(list[index], list[index - 1]));
+    const end = running ? now : ended !== undefined ? Math.max(start, Math.min(list[ended].prefillAt, list[ended].at)) : list[next].at;
+    const rate = ended !== undefined ? list[ended].prefillRate : null;
+    bands.push({ start, end, first, next, ended, running, rate, share: list.slice(first, next).map((point) => point.prefillShare).find(finite) ?? null, tokens: finite(rate) ? rate * (end - start) / 1000 : null });
+    first = next - 1;
+  }
+  return bands;
+}
 // The prefill line: at each point, the rate of the prompt pass first seen since the previous point, zero when none
 // was (prefill idle), and a gap while the API did not answer. Engines that hold their last rate drop to zero too.
+// A pass seen running reports its rate only when it ends: the points it ran through take that rate (the pass's mean),
+// and are a gap while it still runs.
 export function prefillSeries(history) {
   const list = history ?? [];
-  return list.map((point, index) => {
-    const fresh = finite(point.prefillAt) && finite(point.prefillRate) && !(point.prefillAt <= list[index - 1]?.at);
-    return { at: point.at, value: fresh ? point.prefillRate : finite(point.runningRequests) ? 0 : null };
-  });
+  const series = list.map((point, index) => ({ at: point.at, value: freshPass(point, list[index - 1]) ? point.prefillRate : finite(point.runningRequests) ? 0 : null }));
+  for (const band of prefillBands(list)) {
+    for (let index = band.first; index < band.next; index++) {
+      if (band.running) series[index].value = null;
+      else if (finite(band.rate)) series[index].value = band.rate;
+    }
+  }
+  return series;
+}
+// m:ss
+export function clockSpan(seconds) {
+  const s = Math.max(0, Math.round(finite(seconds) ? seconds : 0));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+// The Prefill reading while a pass runs: how long it has run, and the context its prompt fills when known.
+export function prefillingText(pass, now = Date.now()) {
+  const elapsed = clockSpan((now - Date.parse(pass.startedAt)) / 1000);
+  return finite(pass.contextShare) ? t('engine.prefillingShare', { share: fixed(pass.contextShare * 100, 1, '%'), elapsed }) : elapsed;
+}
+// A band's words: how long, and the tokens it computed (ended) or the context its prompt fills (running).
+export function bandText(band) {
+  const elapsed = clockSpan((band.end - band.start) / 1000);
+  if (finite(band.tokens)) return t('chart.bandEnded', { elapsed, tokens: compact(band.tokens), rate: fixed(band.rate, 0) });
+  return finite(band.share) ? t('chart.bandShare', { elapsed, share: fixed(band.share * 100, 1, '%') }) : t('chart.band', { elapsed });
 }
 export function livePoint(state) {
   const servers = modelServers(state);
@@ -411,7 +465,7 @@ export function livePoint(state) {
   if (!finite(at)) return null;
   const fields = (inference) => {
     const value = (key) => (inference?.ok && finite(inference[key]) ? inference[key] : null);
-    return { outputTokensPerSecond: value('outputTokensPerSecond'), promptTokensPerSecond: value('promptTokensPerSecond'), runningRequests: value('runningRequests'), queue: value('waitingRequests'), ...prefillPass(inference) };
+    return { outputTokensPerSecond: value('outputTokensPerSecond'), promptTokensPerSecond: value('promptTokensPerSecond'), runningRequests: value('runningRequests'), queue: value('waitingRequests'), ...prefillPass(inference), ...runningPass(inference) };
   };
   // Like the server's history: totals over the servers that answer, and with several servers each one's own.
   const each = servers.map((server) => fields(server.inference));
@@ -423,6 +477,7 @@ export function livePoint(state) {
     runningRequests: sum('runningRequests'),
     queue: sum('queue'),
     ...latestPass(each),
+    ...firstRunning(each),
     ...(servers.length > 1 ? { servers: Object.fromEntries(servers.map((server, index) => [server.id, each[index]])) } : {}),
     nodes: Object.fromEntries(Object.entries(state?.nodes ?? {}).map(([id, node]) => [id, {
       temperature: node?.ok && finite(node.gpu?.temperature) ? node.gpu.temperature : null,
