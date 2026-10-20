@@ -147,12 +147,12 @@ export function engineMetric(inference, field, { averages = true } = {}) {
   if (averages && ['promptTokensPerSecond', 'promptComputeTokensPerSecond'].includes(field) && inference?.reported?.[key] === false && inference.reported.averagePromptTokensPerSecond) key = 'averagePromptTokensPerSecond';
   const kind = inference?.metricKinds?.[key];
   const label = kind === 'context' ? 'engine.contextUsed' : kind === 'twoSecond' ? (key === 'outputTokensPerSecond' ? 'engine.decode2s' : 'engine.prefill2s')
-    : kind === 'lastPass' ? 'engine.prefillLast' : kind === 'sessionMean' ? (key === 'averageOutputTokensPerSecond' ? 'engine.decodeMean' : 'engine.prefillMean')
+    : kind === 'finishedPasses' ? 'engine.prefill' : kind === 'sessionMean' ? (key === 'averageOutputTokensPerSecond' ? 'engine.decodeMean' : 'engine.prefillMean')
     : kind === 'sinceStart' ? 'engine.cacheHitSinceStart' : ENGINE_LABELS[key];
   const help = kind === 'sessionMean' ? (key === 'averageOutputTokensPerSecond' ? 'help.decodeMean' : 'help.prefillMean')
     : key === 'meanDecodeSeconds' ? 'help.meanDecode' : kind === 'sinceStart' ? 'help.cacheHitSinceStart'
     : kind === 'context' ? 'help.contextUsed' : kind === 'twoSecond' ? (key === 'outputTokensPerSecond' ? 'help.decode2s' : 'help.prefill2s')
-    : kind === 'lastPass' ? 'help.prefillLast'
+    : kind === 'finishedPasses' ? 'help.prefillPasses'
     : inference?.engine === 'Strata' && ['promptTokensPerSecond', 'promptComputeTokensPerSecond'].includes(key) ? 'help.strataPrefill'
     : kind === 'queueExcluded' ? 'help.ttftQueueExcluded' : kind === 'tokenWeightedMean' ? 'help.tpotTokenWeighted'
     : kind === 'requestMean' ? 'help.tpotRequestMean' : { prefixCacheHitPercent: 'help.cacheHit', ttftP95RecentSeconds: 'help.ttft', tpotP95RecentSeconds: 'help.tpot' }[key];
@@ -395,13 +395,14 @@ export function prefillPass(inference) {
 function latestPass(passes) {
   return passes.reduce((latest, pass) => (finite(pass.prefillAt) && !(pass.prefillAt <= latest.prefillAt) ? pass : latest), { prefillAt: null, prefillRate: null });
 }
-// One point per prompt pass in the window, at the time the pass was first seen.
-export function prefillPasses(history, start) {
-  const passes = new Map();
-  for (const point of history ?? []) {
-    if (finite(point.prefillAt) && finite(point.prefillRate) && point.prefillAt >= start) passes.set(point.prefillAt, point.prefillRate);
-  }
-  return [...passes].sort((a, b) => a[0] - b[0]).map(([at, value]) => ({ at, value }));
+// The prefill line: at each point, the rate of the prompt pass first seen since the previous point, zero when none
+// was (prefill idle), and a gap while the API did not answer. Engines that hold their last rate drop to zero too.
+export function prefillSeries(history) {
+  const list = history ?? [];
+  return list.map((point, index) => {
+    const fresh = finite(point.prefillAt) && finite(point.prefillRate) && !(point.prefillAt <= list[index - 1]?.at);
+    return { at: point.at, value: fresh ? point.prefillRate : finite(point.runningRequests) ? 0 : null };
+  });
 }
 export function livePoint(state) {
   const servers = modelServers(state);

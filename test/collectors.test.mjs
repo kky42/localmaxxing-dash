@@ -1253,7 +1253,7 @@ test("TensorFold 1.0.2 native: health's two-second decode rate comes first, the 
     assert.equal(first.outputTokensPerSecond, 85.3, "health's rate needs no second poll");
     assert.equal(first.metricKinds.outputTokensPerSecond, "twoSecond");
     assert.equal(first.promptComputeTokensPerSecond, 800);
-    assert.equal(first.metricKinds.promptComputeTokensPerSecond, "lastPass");
+    assert.equal(first.metricKinds.promptComputeTokensPerSecond, "finishedPasses");
     assert.ok(first.tpotP95Seconds > 0.01 && first.tpotP95Seconds <= 0.015);
     assert.equal(first.reported.tpotP95RecentSeconds, true);
     assert.equal(first.reported.prefixCacheHitPercent, false);
@@ -1263,13 +1263,13 @@ test("TensorFold 1.0.2 native: health's two-second decode rate comes first, the 
     collector.previous.at -= 2000;
     const ended = await collector.collect();
     assert.equal(ended.outputTokensPerSecond, 85.3, "a stream counted twice by the token sum does not reach the rate");
-    assert.equal(ended.promptComputeTokensPerSecond, 800, "the same pass, read again");
+    assert.equal(ended.promptComputeTokensPerSecond, 0, "the same pass, read again, counts once");
     setHealth(tensorfoldNative.healthStart);
     collector.previous.at -= 2000;
     const quiet = await collector.collect();
     assert.equal(quiet.outputTokensPerSecond, 0);
-    assert.equal(quiet.promptComputeTokensPerSecond, 800, "the last pass is held after the engine's two seconds");
-    assert.equal(quiet.prefillUpdatedAt, ended.prefillUpdatedAt, "a held pass keeps the time it was first seen");
+    assert.equal(quiet.promptComputeTokensPerSecond, 0, "prefill idle reads zero");
+    assert.equal(quiet.prefillUpdatedAt, first.prefillUpdatedAt, "the latest pass keeps the time it was first seen");
 
     // Without /health's live rates, the token sum: increases of its high-water mark within the run.
     const restricted = { status: "ok" };
@@ -1324,6 +1324,7 @@ test("TensorFold: a prompt pass reported only between two polls is caught by the
     const after = await collector.collect();
     assert.equal(after.promptComputeTokensPerSecond, 1234.5);
     assert.ok(Date.parse(after.prefillUpdatedAt) < Date.parse(after.updatedAt));
+    assert.equal((await collector.collect()).promptComputeTokensPerSecond, 0, "a pass is reported by one poll only");
     assert.ok(requested.filter((path) => path === "/health").length >= 3, "the probe read /health between the polls");
     // A poll stops the running probe and starts its own: one probe at a time.
     const counted = requested.length;

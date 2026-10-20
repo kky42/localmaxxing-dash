@@ -298,7 +298,7 @@ export function fixtureState(count, mode, nowMs = Date.now(), { longNames = fals
     if (engine === "TensorFold") {
       inference.prefixCacheHitPercent = inference.promptCacheTokensPerSecond = null;
       inference.reported.prefixCacheHitPercent = inference.reported.promptCacheTokensPerSecond = false;
-      inference.metricKinds.promptTokensPerSecond = inference.metricKinds.promptComputeTokensPerSecond = "lastPass";
+      inference.metricKinds.promptTokensPerSecond = inference.metricKinds.promptComputeTokensPerSecond = "finishedPasses";
       inference.metricKinds.outputTokensPerSecond = "twoSecond";
       inference.metricKinds.tpotP95RecentSeconds = "requestMean";
     }

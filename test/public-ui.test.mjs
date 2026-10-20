@@ -547,3 +547,10 @@ test('keyboard shortcuts go by physical key, so they also work with a Korean lay
   assert.equal(shortcutAction(key('KeyS', 'S', { shiftKey: true })), null);
   assert.equal(shortcutAction(key('KeyX', 'x')), null);
 });
+
+test("the prefill line is the pass first seen at each point, zero while prefill is idle, a gap while the API is down", async () => {
+  const { prefillSeries } = await import("../public/view-data.js");
+  const point = (at, prefillAt, prefillRate, runningRequests = 1) => ({ at, prefillAt, prefillRate, runningRequests });
+  const series = prefillSeries([point(1000, null, null), point(3000, 2500, 1500), point(5000, 2500, 1500), point(7000, null, null, null), point(9000, 8800, 900)]);
+  assert.deepEqual(series.map((p) => p.value), [0, 1500, 0, null, 900]);
+});

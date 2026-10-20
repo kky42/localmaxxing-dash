@@ -1,5 +1,5 @@
 import { mountMini } from './mini/mini-view.js';
-import { PHONE_QUERY, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, gpuMemory, memoryWording, readingLabel, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, prefillPasses, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, serverStateKey, pickedServer, viewInference, engineMetric, nodeReading, hasNodeTemperature, memoryWarning, outputCoverage, engineNeedsKey } from './view-data.js';
+import { PHONE_QUERY, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, gpuMemory, memoryWording, readingLabel, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, prefillSeries, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, serverStateKey, pickedServer, viewInference, engineMetric, nodeReading, hasNodeTemperature, memoryWarning, outputCoverage, engineNeedsKey } from './view-data.js';
 import { READING_IDS, rackQuery, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
 import { t, setLanguage, translatePage, serverText, LANGUAGE_NAMES } from './i18n.js';
 import { hide as hideHelp } from './help.js';
@@ -129,10 +129,9 @@ function renderCharts(state) {
   $('#speed').nextElementSibling.textContent='tok/s'+(coverage?` ${coverage}`:'');
   const d=showOutput?chartPath(history,'outputTokensPerSecond',{start,end,min:0,max,top:4,bottom:22}):'';$('#output-line').setAttribute('d',d);$('#output-fill').setAttribute('d','');
   $('#avg-line').setAttribute('d',finite(avg)?chartPath([{at:start,value:avg},{at:end,value:avg}],'value',{start,end,min:0,max,top:4,bottom:22}):'');
-  // Prompt passes on their own scale: a dot per pass, joined in time order.
-  const passes=prefillPasses(history,start),passMax=Math.max(1,...passes.map(p=>p.value))*1.15,passBox={start,end,min:0,max:passMax,top:4,bottom:22};
-  $('#prefill-line').setAttribute('d',chartPath(passes,'value',passBox));
-  $('#prefill-dots').setAttribute('d',chartPath(passes,'value',passBox).replace(/L/g,'M').replace(/(M[\d.]+ [\d.]+)/g,'$1 l0 0'));
+  // Prefill on its own scale (prompt rates run far above output rates), zero while no prompt pass ends.
+  const prefill=prefillSeries(history.filter(point=>point.at>=start-60_000)),prefillMax=Math.max(1,...prefill.map(p=>p.value).filter(finite))*1.15;
+  $('#prefill-line').setAttribute('d',chartPath(prefill,'value',{start,end,min:0,max:prefillMax,top:4,bottom:22}));
   const label=value=>clock(value,{seconds:false});
   text('#range-start',label(start));text('#range-mid',label((start+end)/2));text('#range-end',label(end));
   const shownStopped=several&&!each?pickedServer(modelServers(state),settings.server).inferenceState==='stopped':state.inferenceState==='stopped';
