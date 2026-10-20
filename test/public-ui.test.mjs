@@ -213,7 +213,7 @@ test("a poll without history adds its own sample to the history the page already
   };
   const point = livePoint(state);
   assert.deepEqual(point, {
-    at: Date.parse('2026-10-02T03:00:02Z'), outputTokensPerSecond: 61.3, promptTokensPerSecond: 2104, runningRequests: 2, queue: 0,
+    at: Date.parse('2026-10-02T03:00:02Z'), outputTokensPerSecond: 61.3, promptTokensPerSecond: 2104, runningRequests: 2, queue: 0, prefillAt: null, prefillRate: null,
     nodes: { 1: { temperature: 57, memoryAvailableBytes: 9.5 * 2 ** 30 }, 2: { temperature: null, memoryAvailableBytes: null } },
   });
   const old = { at: point.at - 61 * 60_000 }, recent = { at: point.at - 2000 };

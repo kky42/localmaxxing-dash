@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { downsampleHistory, summarizeHistory } from "../lib/history.mjs";
+import { downsampleHistory, summarizeHistory, prefillPass } from "../lib/history.mjs";
 
 const point = (at, output, running, temperature) => ({
   at, outputTokensPerSecond: output, promptTokensPerSecond: null, runningRequests: running, queue: 0,
@@ -31,4 +31,14 @@ test("with several model servers, each server's own fields are averaged next to 
   assert.deepEqual(down.map((p) => p.servers.a.outputTokensPerSecond), [20.5, 22.5]);
   assert.deepEqual(down.map((p) => p.servers.b.outputTokensPerSecond), [null, 10]);
   assert.equal(downsampleHistory(points.map(({ servers, ...rest }) => rest), 2)[0].servers, undefined);
+});
+
+test("prompt passes survive downsampling: the passes first seen in a bucket fold into one, a held pass is not repeated", () => {
+  const pass = (at, prefillAt, prefillRate) => ({ ...point(at, 10, 1, 50), prefillAt, prefillRate });
+  const points = [pass(0, null, null), pass(1000, 500, 1000), pass(2000, 500, 1000), pass(3000, 500, 1000), pass(4000, 3500, 3000), pass(5000, 4500, 2000)];
+  const down = downsampleHistory(points, 3);
+  assert.deepEqual(down.map((p) => [p.prefillAt, p.prefillRate]), [[500, 1000], [500, 1000], [4500, 2500]]);
+  assert.deepEqual(prefillPass({ ok: true, prefillUpdatedAt: new Date(7000).toISOString(), promptComputeTokensPerSecond: 1597.4 }), { prefillAt: 7000, prefillRate: 1597.4 });
+  assert.deepEqual(prefillPass({ ok: true, prefillUpdatedAt: null, promptComputeTokensPerSecond: 0 }), { prefillAt: null, prefillRate: null });
+  assert.deepEqual(prefillPass({ ok: false, prefillUpdatedAt: new Date(7000).toISOString(), promptComputeTokensPerSecond: 5 }), { prefillAt: null, prefillRate: null });
 });

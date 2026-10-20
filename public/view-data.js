@@ -386,6 +386,23 @@ export function staleAfterMs(state) {
 }
 
 // The latest sample of a state polled without history, shaped like one point of state.history.
+// The last prompt pass a server reported, and the latest over several; lib/history.mjs keeps the same two.
+export function prefillPass(inference) {
+  const at = Date.parse(inference?.ok ? inference.prefillUpdatedAt ?? '' : '');
+  const rate = inference?.promptComputeTokensPerSecond ?? inference?.promptTokensPerSecond;
+  return finite(at) && finite(rate) && rate > 0 ? { prefillAt: at, prefillRate: rate } : { prefillAt: null, prefillRate: null };
+}
+function latestPass(passes) {
+  return passes.reduce((latest, pass) => (finite(pass.prefillAt) && !(pass.prefillAt <= latest.prefillAt) ? pass : latest), { prefillAt: null, prefillRate: null });
+}
+// One point per prompt pass in the window, at the time the pass was first seen.
+export function prefillPasses(history, start) {
+  const passes = new Map();
+  for (const point of history ?? []) {
+    if (finite(point.prefillAt) && finite(point.prefillRate) && point.prefillAt >= start) passes.set(point.prefillAt, point.prefillRate);
+  }
+  return [...passes].sort((a, b) => a[0] - b[0]).map(([at, value]) => ({ at, value }));
+}
 export function livePoint(state) {
   const servers = modelServers(state);
   const stamps = servers.map((server) => Date.parse(server.inference?.updatedAt ?? '')).filter(finite);
@@ -393,7 +410,7 @@ export function livePoint(state) {
   if (!finite(at)) return null;
   const fields = (inference) => {
     const value = (key) => (inference?.ok && finite(inference[key]) ? inference[key] : null);
-    return { outputTokensPerSecond: value('outputTokensPerSecond'), promptTokensPerSecond: value('promptTokensPerSecond'), runningRequests: value('runningRequests'), queue: value('waitingRequests') };
+    return { outputTokensPerSecond: value('outputTokensPerSecond'), promptTokensPerSecond: value('promptTokensPerSecond'), runningRequests: value('runningRequests'), queue: value('waitingRequests'), ...prefillPass(inference) };
   };
   // Like the server's history: totals over the servers that answer, and with several servers each one's own.
   const each = servers.map((server) => fields(server.inference));
@@ -404,6 +421,7 @@ export function livePoint(state) {
     promptTokensPerSecond: sum('promptTokensPerSecond'),
     runningRequests: sum('runningRequests'),
     queue: sum('queue'),
+    ...latestPass(each),
     ...(servers.length > 1 ? { servers: Object.fromEntries(servers.map((server, index) => [server.id, each[index]])) } : {}),
     nodes: Object.fromEntries(Object.entries(state?.nodes ?? {}).map(([id, node]) => [id, {
       temperature: node?.ok && finite(node.gpu?.temperature) ? node.gpu.temperature : null,

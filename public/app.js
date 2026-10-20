@@ -1,5 +1,5 @@
 import { mountMini } from './mini/mini-view.js';
-import { PHONE_QUERY, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, gpuMemory, memoryWording, readingLabel, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, serverStateKey, pickedServer, viewInference, engineMetric, nodeReading, hasNodeTemperature, memoryWarning, outputCoverage, engineNeedsKey } from './view-data.js';
+import { PHONE_QUERY, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, gpuMemory, memoryWording, readingLabel, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, prefillPasses, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, serverStateKey, pickedServer, viewInference, engineMetric, nodeReading, hasNodeTemperature, memoryWarning, outputCoverage, engineNeedsKey } from './view-data.js';
 import { READING_IDS, rackQuery, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
 import { t, setLanguage, translatePage, serverText, LANGUAGE_NAMES } from './i18n.js';
 import { hide as hideHelp } from './help.js';
@@ -109,7 +109,7 @@ function renderLinks(state) {
 function chartSeries(state) {
   const history=state.history||[];if(!severalServers(state)||settings.servers!=='one')return history;
   const id=pickedServer(modelServers(state),settings.server).id;
-  return history.map(point=>({at:point.at,outputTokensPerSecond:null,runningRequests:null,queue:null,...point.servers?.[id]}));
+  return history.map(point=>({at:point.at,outputTokensPerSecond:null,runningRequests:null,queue:null,prefillAt:null,prefillRate:null,...point.servers?.[id]}));
 }
 // The mean output over the samples with requests running, as the server computes it for the totals.
 function activeAverage(points){const rates=points.filter(point=>point.runningRequests>0&&finite(point.outputTokensPerSecond)).map(point=>point.outputTokensPerSecond);return rates.length?rates.reduce((sum,rate)=>sum+rate,0)/rates.length:null}
@@ -129,7 +129,10 @@ function renderCharts(state) {
   $('#speed').nextElementSibling.textContent='tok/s'+(coverage?` ${coverage}`:'');
   const d=showOutput?chartPath(history,'outputTokensPerSecond',{start,end,min:0,max,top:4,bottom:22}):'';$('#output-line').setAttribute('d',d);$('#output-fill').setAttribute('d','');
   $('#avg-line').setAttribute('d',finite(avg)?chartPath([{at:start,value:avg},{at:end,value:avg}],'value',{start,end,min:0,max,top:4,bottom:22}):'');
-  const queueMax=Math.max(1,...history.map(p=>p.queue).filter(finite));$('#queue-line').setAttribute('d',chartPath(history,'queue',{start,end,min:0,max:queueMax,top:120,bottom:4}));
+  // Prompt passes on their own scale: a dot per pass, joined in time order.
+  const passes=prefillPasses(history,start),passMax=Math.max(1,...passes.map(p=>p.value))*1.15,passBox={start,end,min:0,max:passMax,top:4,bottom:22};
+  $('#prefill-line').setAttribute('d',chartPath(passes,'value',passBox));
+  $('#prefill-dots').setAttribute('d',chartPath(passes,'value',passBox).replace(/L/g,'M').replace(/(M[\d.]+ [\d.]+)/g,'$1 l0 0'));
   const label=value=>clock(value,{seconds:false});
   text('#range-start',label(start));text('#range-mid',label((start+end)/2));text('#range-end',label(end));
   const shownStopped=several&&!each?pickedServer(modelServers(state),settings.server).inferenceState==='stopped':state.inferenceState==='stopped';
@@ -184,7 +187,7 @@ function drawState(state) {
   // The big figure and the legend follow the total over the servers, or the picked one in "one at a time".
   const focusStopped=several&&settings.servers==='one'?pickedServer(servers,settings.server).inferenceState==='stopped':stopped;
   const empty=focusStopped?t('common.stopped'):unknown(),value=(number,formatter=fixed)=>focus?.ok?formatter(number):empty;
-  text('#speed',value(focus?.outputTokensPerSecond));text('#legend-speed',value(focus?.outputTokensPerSecond));text('#queue',value(focus?.waitingRequests,n=>fixed(n,0)));
+  text('#speed',value(focus?.outputTokensPerSecond));text('#legend-speed',value(focus?.outputTokensPerSecond));text('#prefill',value(focus?.promptComputeTokensPerSecond??focus?.promptTokensPerSecond,n=>fixed(n,0)));
   renderServers(state);renderEngines(state);$('#servers-choice').hidden=!several;
   metas.forEach(meta=>renderNode(meta,nodes[meta.id]));renderLinks(state);renderCharts(state);renderToday(state.usage);
   if(dialog.open)renderPreview();
@@ -251,7 +254,7 @@ $('#servers').addEventListener('click',event=>{const row=event.target.closest('b
 function failedState() {
   latest=null;
   $('#shell').classList.add('stale');$('.status').className='status error';text('#status-title',t('statusbar.serverDown'));text('#status-desc',t('statusbar.serverDownDetail'));
-  metas.forEach(meta=>renderNode(meta,null));renderLinks(null);renderToday(null);renderLegend('temp',null);renderLegend('mem',null);for(const id of ['speed','legend-speed','avg','queue'])text('#'+id,unknown());document.querySelectorAll('#engines .engine-block').forEach(block=>fillEngine(block,{...modelServers(shown).find(server=>server.id===block.dataset.server)?.inference,ok:false},false));$('#servers').querySelectorAll('.server-row').forEach(row=>{serverState(row,'unknown');serverCell(row,'output',unknown());serverCell(row,'queue',t('servers.queue',{queue:unknown()}))});$('#plot-note').hidden=false;$('#plot-note').textContent=t('chart.note.reconnecting');
+  metas.forEach(meta=>renderNode(meta,null));renderLinks(null);renderToday(null);renderLegend('temp',null);renderLegend('mem',null);for(const id of ['speed','legend-speed','avg','prefill'])text('#'+id,unknown());document.querySelectorAll('#engines .engine-block').forEach(block=>fillEngine(block,{...modelServers(shown).find(server=>server.id===block.dataset.server)?.inference,ok:false},false));$('#servers').querySelectorAll('.server-row').forEach(row=>{serverState(row,'unknown');serverCell(row,'output',unknown());serverCell(row,'queue',t('servers.queue',{queue:unknown()}))});$('#plot-note').hidden=false;$('#plot-note').textContent=t('chart.note.reconnecting');
 }
 async function refresh() {
   if(collecting)return;collecting=true;const requestedRange=range,full=historyRange!==requestedRange||Date.now()-historyAt>=HISTORY_REFRESH_MS;

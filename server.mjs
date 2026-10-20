@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { collectNode, uncollectedNode, InferenceCollector, applyNetworkRates, applyGpuMemoryFallback } from "./lib/collectors.mjs";
 import { buildRingLinks, clusterStatus, serverState, servingSummary, DEFAULT_LINK_MIN_GBPS, STARTING_MESSAGE } from "./lib/cluster.mjs";
-import { downsampleHistory, summarizeHistory } from "./lib/history.mjs";
+import { downsampleHistory, summarizeHistory, prefillPass, latestPass } from "./lib/history.mjs";
 import { hostAllowed, hostRules, SECURITY_HEADERS } from "./lib/http-guard.mjs";
 import { publicState } from "./lib/public-state.mjs";
 import { loadTopology, nodeInterfaces, publicTopology, topologyServers } from "./lib/topology.mjs";
@@ -165,6 +165,7 @@ function historyFields(inference) {
     promptTokensPerSecond: inference?.ok ? inference.promptTokensPerSecond ?? null : null,
     runningRequests: inference?.ok ? inference.runningRequests ?? null : null,
     queue: inference?.ok ? inference.waitingRequests ?? null : null,
+    ...prefillPass(inference),
   };
 }
 
@@ -182,6 +183,7 @@ function addHistoryPoint() {
     promptTokensPerSecond: sum("promptTokensPerSecond"),
     runningRequests: sum("runningRequests"),
     queue: sum("queue"),
+    ...latestPass(each),
     // With several servers, each one's own fields by server id.
     ...(state.servers.length > 1 ? { servers: Object.fromEntries(state.servers.map((server, index) => [server.id, each[index]])) } : {}),
     // Per node id: { temperature, memoryAvailableBytes }. Unreachable or uncollected nodes stay null.
