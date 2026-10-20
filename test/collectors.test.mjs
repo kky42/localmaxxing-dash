@@ -1241,7 +1241,7 @@ test("TensorFold's output rate counts reply tokens while they stream; the ledger
   });
 });
 
-test("TensorFold 1.0.2 native captures hold the token high-water mark through non-atomic completion updates", async () => {
+test("TensorFold 1.0.2 native: health's two-second decode rate comes first, the token sum holds its high-water mark without it", async () => {
   const { InferenceCollector } = await import("../lib/collectors.mjs");
   assert.equal(tensorfoldNative.version, "1.0.2");
   for (const key of ["completion_tokens_total", "prompt_tokens_total", "cached_tokens_total", "prefill_seconds_total", "requests_total"]) assert.equal(key in tensorfoldNative.healthEnd, false, key);
@@ -1250,39 +1250,52 @@ test("TensorFold 1.0.2 native captures hold the token high-water mark through no
     setHealth(health);
     const collector = new InferenceCollector(base);
     const first = await collector.collect();
-    assert.equal(first.outputTokensPerSecond, null, "the token sum needs two polls");
+    assert.equal(first.outputTokensPerSecond, 85.3, "health's rate needs no second poll");
+    assert.equal(first.metricKinds.outputTokensPerSecond, "twoSecond");
     assert.equal(first.promptComputeTokensPerSecond, 800);
-    assert.equal(first.metricKinds.outputTokensPerSecond, undefined);
-    assert.equal(first.metricKinds.promptComputeTokensPerSecond, "twoSecond");
+    assert.equal(first.metricKinds.promptComputeTokensPerSecond, "lastPass");
     assert.ok(first.tpotP95Seconds > 0.01 && first.tpotP95Seconds <= 0.015);
     assert.equal(first.reported.tpotP95RecentSeconds, true);
     assert.equal(first.reported.prefixCacheHitPercent, false);
     assert.equal(first.reported.promptCacheTokensPerSecond, false);
+    // A stream ends: its tokens reach the finished counter while the running gauge still holds them. No burst.
+    setMetrics(tensorfoldScrape({ modern: true, finished: 10948 + 80 }));
+    collector.previous.at -= 2000;
+    const ended = await collector.collect();
+    assert.equal(ended.outputTokensPerSecond, 85.3, "a stream counted twice by the token sum does not reach the rate");
+    assert.equal(ended.promptComputeTokensPerSecond, 800, "the same pass, read again");
+    setHealth(tensorfoldNative.healthStart);
+    collector.previous.at -= 2000;
+    const quiet = await collector.collect();
+    assert.equal(quiet.outputTokensPerSecond, 0);
+    assert.equal(quiet.promptComputeTokensPerSecond, 800, "the last pass is held after the engine's two seconds");
+    assert.equal(quiet.prefillUpdatedAt, ended.prefillUpdatedAt, "a held pass keeps the time it was first seen");
+
+    // Without /health's live rates, the token sum: increases of its high-water mark within the run.
+    const restricted = { status: "ok" };
+    setHealth(restricted);
+    setMetrics(tensorfoldScrape({ modern: true }));
+    await collector.collect();
     setMetrics(tensorfoldScrape({ modern: true, runningTokens: 100 }));
     collector.previous.at -= 2000;
-    assert.ok(Math.abs((await collector.collect()).outputTokensPerSecond - 10) < 0.5, "the token total takes precedence over health's rate");
+    const sum = await collector.collect();
+    assert.ok(Math.abs(sum.outputTokensPerSecond - 10) < 0.5, String(sum.outputTokensPerSecond));
+    assert.equal(sum.metricKinds.outputTokensPerSecond, undefined);
     setMetrics(tensorfoldScrape({ modern: true, streams: [] }));
     collector.previous.at -= 2000;
     assert.equal((await collector.collect()).outputTokensPerSecond, 0, "stream release can precede the finished-counter update");
     setMetrics(tensorfoldScrape({ modern: true, finished: 10948, streams: [] }));
     collector.previous.at -= 2000;
-    setHealth(tensorfoldNative.healthStart);
-    const released = await collector.collect();
-    assert.equal(released.outputTokensPerSecond, 0, "running tokens transfer to finished totals without a burst or a negative delta");
-    assert.equal(released.promptComputeTokensPerSecond, 0);
+    assert.equal((await collector.collect()).outputTokensPerSecond, 0, "running tokens transfer to finished totals without a burst or a negative delta");
     setMetrics(tensorfoldScrape({ modern: true, finished: 10, streams: [] }));
     assert.equal((await collector.collect()).outputTokensPerSecond, null, "a counter reset has no live baseline");
+
     const noRunning = tensorfoldScrape({ modern: true }).replace(/^tensorfold:generation_tokens_running .*\n/m, "");
     setMetrics(noRunning);
-    setHealth(health);
-    const fallback = await collector.collect();
-    assert.equal(fallback.outputTokensPerSecond, 85.3);
-    assert.equal(fallback.metricKinds.outputTokensPerSecond, "twoSecond");
-    setHealth({ status: "ok" });
-    const restricted = await collector.collect();
-    assert.equal(restricted.outputTokensPerSecond, null);
-    assert.equal(restricted.promptTokensPerSecond, 2032 / 2.142097);
-    assert.equal(restricted.reported.promptComputeTokensPerSecond, false);
+    const neither = await collector.collect();
+    assert.equal(neither.outputTokensPerSecond, null);
+    assert.equal(neither.promptTokensPerSecond, 2032 / 2.142097);
+    assert.equal(neither.reported.promptComputeTokensPerSecond, false);
     setMetrics(noRunning + "tensorfold:prefix_cache_queries_total 0\ntensorfold:prefix_cache_hits_total 0\ntensorfold:prompt_tokens_cached_total 0\n");
     const emptyCache = await collector.collect();
     assert.equal(emptyCache.reported.prefixCacheHitPercent, true, "counter presence decides support, even before the first query");
@@ -1293,6 +1306,31 @@ test("TensorFold 1.0.2 native captures hold the token high-water mark through no
     assert.equal(cached.reported.prefixCacheHitPercent, true);
     assert.equal(cached.promptCacheTokensTotal, 25);
     assert.ok(requested.every(path => ["/metrics", "/health", "/v1/models", "/v1/models replied"].includes(path)), "no reset_peak or control request");
+  });
+});
+
+test("TensorFold: a prompt pass reported only between two polls is caught by the probe and held", async () => {
+  const { InferenceCollector } = await import("../lib/collectors.mjs");
+  await withFakeEngine(tensorfoldScrape({ modern: true }), async (base, _setMetrics, setHealth, _models, _slots, requested) => {
+    const live = (prefill) => ({ ...tensorfoldNative.healthStart, live: { ...tensorfoldNative.healthStart.live, decode_tokens_per_second: 50, prefill_tokens_per_second: prefill } });
+    setHealth(live(0));
+    const collector = new InferenceCollector(base);
+    const before = await collector.collect();
+    assert.equal(before.promptComputeTokensPerSecond, 0, "no pass seen yet");
+    assert.equal(before.prefillUpdatedAt, null);
+    setHealth(live(1234.5));
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+    setHealth(live(0));
+    const after = await collector.collect();
+    assert.equal(after.promptComputeTokensPerSecond, 1234.5);
+    assert.ok(Date.parse(after.prefillUpdatedAt) < Date.parse(after.updatedAt));
+    assert.ok(requested.filter((path) => path === "/health").length >= 3, "the probe read /health between the polls");
+    // A poll stops the running probe and starts its own: one probe at a time.
+    const counted = requested.length;
+    await collector.collect();
+    await collector.collect();
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+    assert.ok(requested.slice(counted).filter((path) => path === "/health").length <= 3);
   });
 });
 

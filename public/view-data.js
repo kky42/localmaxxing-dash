@@ -147,11 +147,12 @@ export function engineMetric(inference, field, { averages = true } = {}) {
   if (averages && ['promptTokensPerSecond', 'promptComputeTokensPerSecond'].includes(field) && inference?.reported?.[key] === false && inference.reported.averagePromptTokensPerSecond) key = 'averagePromptTokensPerSecond';
   const kind = inference?.metricKinds?.[key];
   const label = kind === 'context' ? 'engine.contextUsed' : kind === 'twoSecond' ? (key === 'outputTokensPerSecond' ? 'engine.decode2s' : 'engine.prefill2s')
-    : kind === 'sessionMean' ? (key === 'averageOutputTokensPerSecond' ? 'engine.decodeMean' : 'engine.prefillMean')
+    : kind === 'lastPass' ? 'engine.prefillLast' : kind === 'sessionMean' ? (key === 'averageOutputTokensPerSecond' ? 'engine.decodeMean' : 'engine.prefillMean')
     : kind === 'sinceStart' ? 'engine.cacheHitSinceStart' : ENGINE_LABELS[key];
   const help = kind === 'sessionMean' ? (key === 'averageOutputTokensPerSecond' ? 'help.decodeMean' : 'help.prefillMean')
     : key === 'meanDecodeSeconds' ? 'help.meanDecode' : kind === 'sinceStart' ? 'help.cacheHitSinceStart'
     : kind === 'context' ? 'help.contextUsed' : kind === 'twoSecond' ? (key === 'outputTokensPerSecond' ? 'help.decode2s' : 'help.prefill2s')
+    : kind === 'lastPass' ? 'help.prefillLast'
     : inference?.engine === 'Strata' && ['promptTokensPerSecond', 'promptComputeTokensPerSecond'].includes(key) ? 'help.strataPrefill'
     : kind === 'queueExcluded' ? 'help.ttftQueueExcluded' : kind === 'tokenWeightedMean' ? 'help.tpotTokenWeighted'
     : kind === 'requestMean' ? 'help.tpotRequestMean' : { prefixCacheHitPercent: 'help.cacheHit', ttftP95RecentSeconds: 'help.ttft', tpotP95RecentSeconds: 'help.tpot' }[key];
