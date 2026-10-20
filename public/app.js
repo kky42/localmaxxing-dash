@@ -129,9 +129,13 @@ function renderCharts(state) {
   $('#speed').nextElementSibling.textContent='tok/s'+(coverage?` ${coverage}`:'');
   const d=showOutput?chartPath(history,'outputTokensPerSecond',{start,end,min:0,max,top:4,bottom:22}):'';$('#output-line').setAttribute('d',d);$('#output-fill').setAttribute('d','');
   $('#avg-line').setAttribute('d',finite(avg)?chartPath([{at:start,value:avg},{at:end,value:avg}],'value',{start,end,min:0,max,top:4,bottom:22}):'');
-  // Prefill on its own scale (prompt rates run far above output rates), zero while no prompt pass ends.
-  const prefill=prefillSeries(history.filter(point=>point.at>=start-60_000)),prefillMax=Math.max(1,...prefill.map(p=>p.value).filter(finite))*1.15;
-  $('#prefill-line').setAttribute('d',chartPath(prefill,'value',{start,end,min:0,max:prefillMax,top:4,bottom:22}));
+  // Prefill on its own scale (prompt rates run far above output rates), zero while no prompt pass ends. Its average
+  // while busy is the mean over the points where a pass ended, as the decode average leaves idle samples out.
+  const prefill=prefillSeries(history.filter(point=>point.at>=start-60_000)),busy=prefill.filter(p=>p.at>=start&&p.value>0).map(p=>p.value);
+  const prefillAvg=busy.length?busy.reduce((sum,rate)=>sum+rate,0)/busy.length:null;text('#prefill-avg',fixed(prefillAvg,0));
+  const prefillBox={start,end,min:0,max:Math.max(1,...prefill.map(p=>p.value).filter(finite))*1.15,top:4,bottom:22};
+  $('#prefill-line').setAttribute('d',chartPath(prefill,'value',prefillBox));
+  $('#prefill-avg-line').setAttribute('d',finite(prefillAvg)?chartPath([{at:start,value:prefillAvg},{at:end,value:prefillAvg}],'value',prefillBox):'');
   const label=value=>clock(value,{seconds:false});
   text('#range-start',label(start));text('#range-mid',label((start+end)/2));text('#range-end',label(end));
   const shownStopped=several&&!each?pickedServer(modelServers(state),settings.server).inferenceState==='stopped':state.inferenceState==='stopped';
@@ -253,7 +257,7 @@ $('#servers').addEventListener('click',event=>{const row=event.target.closest('b
 function failedState() {
   latest=null;
   $('#shell').classList.add('stale');$('.status').className='status error';text('#status-title',t('statusbar.serverDown'));text('#status-desc',t('statusbar.serverDownDetail'));
-  metas.forEach(meta=>renderNode(meta,null));renderLinks(null);renderToday(null);renderLegend('temp',null);renderLegend('mem',null);for(const id of ['speed','legend-speed','avg','prefill'])text('#'+id,unknown());document.querySelectorAll('#engines .engine-block').forEach(block=>fillEngine(block,{...modelServers(shown).find(server=>server.id===block.dataset.server)?.inference,ok:false},false));$('#servers').querySelectorAll('.server-row').forEach(row=>{serverState(row,'unknown');serverCell(row,'output',unknown());serverCell(row,'queue',t('servers.queue',{queue:unknown()}))});$('#plot-note').hidden=false;$('#plot-note').textContent=t('chart.note.reconnecting');
+  metas.forEach(meta=>renderNode(meta,null));renderLinks(null);renderToday(null);renderLegend('temp',null);renderLegend('mem',null);for(const id of ['speed','legend-speed','avg','prefill','prefill-avg'])text('#'+id,unknown());document.querySelectorAll('#engines .engine-block').forEach(block=>fillEngine(block,{...modelServers(shown).find(server=>server.id===block.dataset.server)?.inference,ok:false},false));$('#servers').querySelectorAll('.server-row').forEach(row=>{serverState(row,'unknown');serverCell(row,'output',unknown());serverCell(row,'queue',t('servers.queue',{queue:unknown()}))});$('#plot-note').hidden=false;$('#plot-note').textContent=t('chart.note.reconnecting');
 }
 async function refresh() {
   if(collecting)return;collecting=true;const requestedRange=range,full=historyRange!==requestedRange||Date.now()-historyAt>=HISTORY_REFRESH_MS;
