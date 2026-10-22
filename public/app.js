@@ -109,7 +109,7 @@ function renderLinks(state) {
 function chartSeries(state) {
   const history=state.history||[];if(!severalServers(state)||settings.servers!=='one')return history;
   const id=pickedServer(modelServers(state),settings.server).id;
-  return history.map(point=>({at:point.at,outputTokensPerSecond:null,runningRequests:null,queue:null,prefillAt:null,prefillRate:null,prefillStartedAt:null,prefillShare:null,...point.servers?.[id]}));
+  return history.map(point=>({at:point.at,outputTokensPerSecond:null,runningRequests:null,queue:null,prefillAt:null,prefillRate:null,prefillStartedAt:null,...point.servers?.[id]}));
 }
 // The mean output over the samples with requests running, as the server computes it for the totals.
 function activeAverage(points){const rates=points.filter(point=>point.runningRequests>0&&finite(point.outputTokensPerSecond)).map(point=>point.outputTokensPerSecond);return rates.length?rates.reduce((sum,rate)=>sum+rate,0)/rates.length:null}

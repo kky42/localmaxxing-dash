@@ -45,10 +45,9 @@ test("prompt passes survive downsampling: the passes first seen in a bucket fold
 
 test("a downsampled bucket keeps the prompt pass running at its latest point that had one", async () => {
   const { runningPass } = await import("../lib/history.mjs");
-  assert.deepEqual(runningPass({ ok: true, activePrefill: { startedAt: new Date(500).toISOString(), seconds: 1, contextShare: 0.2 } }), { prefillStartedAt: 500, prefillShare: 0.2 });
-  assert.deepEqual(runningPass({ ok: true, activePrefill: null }), { prefillStartedAt: null, prefillShare: null });
-  const points = [0, 1, 2, 3].map((i) => ({ ...point(i * 1000, 10, 1, 50), prefillStartedAt: i === 2 ? 1500 : null, prefillShare: i === 2 ? 0.2 : null }));
+  assert.deepEqual(runningPass({ ok: true, activePrefill: { startedAt: new Date(500).toISOString(), seconds: 1 } }), { prefillStartedAt: 500 });
+  assert.deepEqual(runningPass({ ok: true, activePrefill: null }), { prefillStartedAt: null });
+  const points = [0, 1, 2, 3].map((i) => ({ ...point(i * 1000, 10, 1, 50), prefillStartedAt: i === 2 ? 1500 : null }));
   const down = downsampleHistory(points, 2);
   assert.deepEqual(down.map((p) => p.prefillStartedAt), [null, 1500]);
-  assert.equal(down[1].prefillShare, 0.2);
 });

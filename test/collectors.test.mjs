@@ -1465,17 +1465,15 @@ test("TensorFold: a prompt pass is inferred while a running request is missing f
     // A third request is admitted and listed with its prompt (the others decode between its chunks); it stands still.
     assert.equal((await poll([0.0502, 0.0803, 0.2042], 3)).activePrefill, null, "seen once: not still yet");
     const running = await poll([0.0503, 0.0804, 0.2042], 3);
-    assert.equal(running.activePrefill.contextShare, 0.2042);
     const startedAt = running.activePrefill.startedAt;
     assert.ok(Date.parse(startedAt) < Date.parse(running.updatedAt));
     // An older stream ends meanwhile: the same pass, the same start.
     assert.equal((await poll([0.0804, 0.2042], 2)).activePrefill.startedAt, startedAt);
     // Its pass ends: the stream decodes, no pass.
     assert.equal((await poll([0.0805, 0.2043], 2)).activePrefill, null);
-    // A request admitted while nothing else decodes is missing from the stale list: a pass, without its size.
+    // A request admitted while nothing else decodes is missing from the stale list: a pass.
     const lone = await poll([0.0805, 0.2043], 3);
     assert.ok(lone.activePrefill);
-    assert.equal(lone.activePrefill.contextShare, null);
     // That pass ends (its rate seen) and the next queued one starts at once, the list still stale: a new pass from then.
     setHealth(live(1500));
     const next = await poll([0.0805, 0.2043], 3);
